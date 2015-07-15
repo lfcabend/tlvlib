@@ -37,7 +37,9 @@ object TLV {
   case class BerTag(value: Seq[Byte]) extends Tag {
     require(Option(value).map(!_.isEmpty) == Option(true), "value is null or empty")
 
-    val hasNextByte: Seq[Boolean] = value.zipWithIndex.map { case (x, index) => shouldHaveNextByte(x, index) }
+    private val hasNextByte: Seq[Boolean] =
+      value.zipWithIndex.map { case (x, index) => shouldHaveNextByte(x, index) }
+
     require(hasNextByte.reduceRight(_ && _), "Invalid length indicators")
 
     def isConstructed: Boolean =
@@ -87,11 +89,6 @@ object TLV {
   }
 
   object BerTLV {
-
-    def parseTLV(in: Seq[Byte]): BerTLV = ???
-
-    def parseTLVs(in: Seq[Byte]): Seq[BerTLV] = ???
-
 
     def encodeLength(v: Seq[Byte]): Seq[Byte] = {
       val length = v.length
@@ -146,7 +143,7 @@ object TLV {
   sealed case class BerTLVLeaf(tag: BerTag, value: Seq[Byte]) extends BerTLV {
 
     require(tag != null, "tag is null")
-    require(Option(value).map(!_.isEmpty) == Option(true), "value is null or empty")
+    require(value != null, "value is null")
 
     override def toString() = s"BerTLVLeaf($tag, $value)"
 
