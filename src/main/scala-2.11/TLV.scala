@@ -149,8 +149,6 @@ object TLV {
 
     override def foreach[U](f: BerTLV => U): Unit = f(this)
 
-    def foldTLV[B](f: BerTLVLeaf => B) = f(this)
-
   }
 
   sealed case class BerTLVCons(tag: BerTag, constructedValue: Seq[BerTLV]) extends BerTLV {

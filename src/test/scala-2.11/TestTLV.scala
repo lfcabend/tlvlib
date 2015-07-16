@@ -80,4 +80,62 @@ class TestTLV extends FlatSpec with Matchers {
     v.serializeTLV should be(hex2Bytes("80020000"))
   }
 
+  it should "serialize a length at 127 correctly on 1 byte" in {
+    val bytes: Seq[Byte] = List.fill(127){0.toByte}
+    val v = BerTLVLeaf(BerTag(hex2Bytes("80")), bytes)
+    v.length should be(127)
+    v.serializeTLV should be(hex2Bytes("807F") ++ bytes)
+  }
+
+  it should "serialize a length at 128 correctly on 2 bytes" in {
+    val bytes: Seq[Byte] = List.fill(128){0.toByte}
+    val v = BerTLVLeaf(BerTag(hex2Bytes("80")), bytes)
+    v.length should be(128)
+    v.serializeTLV should be(hex2Bytes("808180") ++ bytes)
+  }
+
+  it should "serialize a length at 255 correctly on 2 bytes" in {
+    val bytes: Seq[Byte] = List.fill(255){0.toByte}
+    val v = BerTLVLeaf(BerTag(hex2Bytes("80")), bytes)
+    v.length should be(255)
+    v.serializeTLV should be(hex2Bytes("8081FF") ++ bytes)
+  }
+
+  it should "serialize a length at 256 correctly on 3 bytes" in {
+    val bytes: Seq[Byte] = List.fill(256){0.toByte}
+    val v = BerTLVLeaf(BerTag(hex2Bytes("80")), bytes)
+    v.length should be(256)
+    v.serializeTLV should be(hex2Bytes("80820100") ++ bytes)
+  }
+
+
+
+  "A BerTLVCons" should "be able to be constructed" in {
+    val v0 = BerTLVLeaf(BerTag("80"), "0000")
+
+    val v = BerTLVCons(BerTag("A5"), List(v0))
+
+    v.tag should be(BerTag("A5"))
+    v.constructedValue should be(List(v0))
+    v.value should be(hex2Bytes("80020000"))
+  }
+
+  it should "be possible to have nested BerTLVCons" in {
+    val v0 = BerTLVLeaf(BerTag("80"), "0000")
+    val v1 = BerTLVCons(BerTag("A5"), List(v0))
+    val v2 = BerTLVCons(BerTag("70"), List(v1))
+
+    v2.tag should be(BerTag("70"))
+    v2.constructedValue should be(List(v1))
+    v2.value should be(hex2Bytes("A50480020000"))
+  }
+
+  it should "be possible to serialize" in {
+    val v0 = BerTLVLeaf(BerTag("80"), "0000")
+    val v1 = BerTLVCons(BerTag("A5"), List(v0))
+    val v2 = BerTLVCons(BerTag("70"), List(v1))
+
+    v2.serializeTLV should be(hex2Bytes("7006A50480020000"))
+  }
+
 }
