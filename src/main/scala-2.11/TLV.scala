@@ -154,7 +154,7 @@ object TLV {
   sealed case class BerTLVCons(tag: BerTag, constructedValue: Seq[BerTLV]) extends BerTLV {
     require(tag != null, "tag is null")
     require(tag.isConstructed, "need a constructed tag")
-    require(Option(constructedValue).map(!_.isEmpty) == Option(true), "value is null or empty")
+    require(constructedValue != null, "value is null or empty")
 
 
     override def toString() = s"BerTLVCons($tag, $constructedValue)"
@@ -238,14 +238,17 @@ object TLV {
       val elems = new ListBuffer[BerTLV]
 
       def continue(in: Input): ParseResult[List[BerTLV]] = {
-        @tailrec def applyP(in0: Input, currentSize: Int): ParseResult[List[BerTLV]] = parseATLV(in0) match {
-          case Success(x, rest) if (x.serializeTLV.length + currentSize < totalSize) =>
-            elems += x ; applyP(rest, x.size + currentSize)
-          case e @ Error(_, _)  => e  // still have to propagate error
-          case _                => Success(elems.toList, in0)
+        @tailrec def applyP(in0: Input): ParseResult[List[BerTLV]] = {
+          val offSetBefore = in0.offset
+          parseATLV(in0) match {
+            case Success(x, rest) if (offSetBefore - rest.offset < totalSize) =>
+              elems += x; applyP(rest)
+            case e@Error(_, _) => e // still have to propagate error
+            case _ => Success(elems.toList, in0)
+          }
         }
 
-        applyP(in, 0)
+        applyP(in)
       }
 
       parseATLV(in) match {
