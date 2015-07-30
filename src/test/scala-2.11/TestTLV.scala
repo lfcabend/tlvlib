@@ -234,4 +234,154 @@ class TestTLV extends FlatSpec with Matchers {
   }
 
 
+  "A TLV parser" should "be able to parse a BerTLVLeaf with 1 byte tag and 1 byte length" in {
+    val parser = new TLVParsers()
+
+    val leaf = parser.parseTLV("80020000").get
+    leaf.tag() should be(BerTag("80"))
+    leaf.length should be(2)
+    leaf.value should be(hex2Bytes("0000"))
+  }
+
+  it should "be able to parse a BerTLVLeaf with no value" in {
+    val parser = new TLVParsers()
+
+    val leaf = parser.parseTLV("8000").get
+    leaf.tag() should be(BerTag("80"))
+    leaf.length should be(0)
+    leaf.value should be(Nil)
+  }
+
+  it should "be able to parse a BerTLVLeaf with 2 byte tag" in {
+    val parser = new TLVParsers()
+
+    val leaf = parser.parseTLV("9F01020001").get
+    leaf.tag() should be(BerTag("9F01"))
+    leaf.length should be(2)
+    leaf.value should be(hex2Bytes("0001"))
+  }
+
+  it should "be able to parse a BerTLVLeaf with 3 byte tag" in {
+    val parser = new TLVParsers()
+
+    val leaf = parser.parseTLV("9F8101020001").get
+    leaf.tag() should be(BerTag("9F8101"))
+    leaf.length should be(2)
+    leaf.value should be(hex2Bytes("0001"))
+  }
+
+  it should "be able to parse a BerTLVLeaf with 1 byte length value 127" in {
+    val parser = new TLVParsers()
+
+    val bytes: Seq[Byte] = List.fill(127) {
+      0.toByte
+    }
+
+    val leaf = parser.parseTLV(hex2Bytes("807F") ++ bytes).get
+    leaf.tag() should be(BerTag("80"))
+    leaf.length should be(127)
+    leaf.value should be(bytes)
+  }
+
+  it should "be able to parse a BerTLVLeaf with 2 byte length value 128" in {
+    val parser = new TLVParsers()
+
+    val bytes: Seq[Byte] = List.fill(128) {
+      0.toByte
+    }
+
+    val leaf = parser.parseTLV(hex2Bytes("808180") ++ bytes).get
+    leaf.tag() should be(BerTag("80"))
+    leaf.length should be(128)
+    leaf.value should be(bytes)
+  }
+
+  it should "be able to parse a BerTLVLeaf with 2 byte length value 255" in {
+    val parser = new TLVParsers()
+
+    val bytes: Seq[Byte] = List.fill(255) {
+      0.toByte
+    }
+
+    val leaf = parser.parseTLV(hex2Bytes("8081FF") ++ bytes).get
+    leaf.tag() should be(BerTag("80"))
+    leaf.length should be(0xFF)
+    leaf.value should be(bytes)
+  }
+
+  it should "be able to parse a BerTLVLeaf with 3 byte length value 256" in {
+    val parser = new TLVParsers()
+
+    val bytes: Seq[Byte] = List.fill(256) {
+      0.toByte
+    }
+
+    val leaf = parser.parseTLV(hex2Bytes("8082010000") ++ bytes).get
+    leaf.tag() should be(BerTag("80"))
+    leaf.length should be(256)
+    leaf.value should be(bytes)
+  }
+
+  it should "be able to parse a BerTLVCons with one nested Leaf" in {
+    val parser = new TLVParsers()
+    val v01 = BerTLVLeaf(BerTag("80"), "0001")
+    parser.parseTLV("A50480020001").get match {
+      case a @ BerTLVCons(t, c) => {
+        t should be(BerTag("A5"))
+        a.length should be(4)
+        c.length should be(1)
+        c(0) should be(v01)
+      }
+      case _ => fail("Should be a ber tlv cons")
+    }
+  }
+
+  it should "be able to parse a BerTLVCons with two nested Leafs" in {
+    val parser = new TLVParsers()
+    val v01 = BerTLVLeaf(BerTag("80"), "0001")
+    val v02 = BerTLVLeaf(BerTag("80"), "0002")
+    parser.parseTLV("A5088002000180020002").get match {
+      case a @ BerTLVCons(t, c) => {
+        t should be(BerTag("A5"))
+        a.length should be(8)
+        c.length should be(2)
+        c(0) should be(v01)
+        c(1) should be(v02)
+      }
+      case _ => fail("Should be a ber tlv cons")
+    }
+  }
+
+  it should "be able to parse a BerTLVCons with no value" in {
+    val parser = new TLVParsers()
+    parser.parseTLV("A500").get match {
+      case a @ BerTLVCons(t, c) => {
+        t should be(BerTag("A5"))
+        a.length should be(0)
+        c should be(Nil)
+      }
+      case _ => fail("Should be a ber tlv cons")
+    }
+  }
+
+  it should "be able to parse a BerTLVCons with nested Cons" in {
+    val parser = new TLVParsers()
+    val v0 = BerTLVLeaf(BerTag("80"), "0000")
+    val v1 = BerTLVCons(BerTag("A5"), List(v0, v0))
+    val v2 = BerTLVCons(BerTag("70"), List(v1, v1, v1))
+
+    parser.parseTLV("701EA5088002000080020000A5088002000080020000A5088002000080020000").get match {
+      case a @ BerTLVCons(t, c) => {
+        t should be(BerTag("70"))
+        a.length should be(30)
+        c.length should be(3)
+        c(0) should be(v1)
+        c(1) should be(v1)
+        c(2) should be(v1)
+      }
+      case _ => fail("Should be a ber tlv cons")
+    }
+  }
+
+
 }

@@ -175,50 +175,60 @@ object TLV {
     import scala.language.postfixOps
     import java.math.BigInteger
 
-    def parseTag(in: String) = parse(parseATag, in)
-
-    def parseLength(in: String) = parse(parseALength, in)
-
     def parseTLV(in: String) = parse(parseATLV, in)
+
+    def parseTLVList(in: String) = parse(parseATLV +, in)
+
+    def parseTLV(in: Seq[Byte]) = parse(parseATLV, in)
+
+    def parseTLVList(in: Seq[Byte]) = parse(parseATLV +, in)
 
     lazy val parseATLV: Parser[BerTLV] = parseAMultipleTLV | parseASingleTLV
 
-    lazy val parseAMultipleTLV : Parser[BerTLVCons] = parseAConstructedTag ~
-      parseALength.into(x => repParsingTLVForXByte(x)) ^^ {case t ~ c => BerTLVCons(t, c)}
+    lazy val parseAMultipleTLV: Parser[BerTLVCons] = parseAConstructedTag ~
+      parseALength.into(x => repParsingTLVForXByte(x)) ^^ { case t ~ c => BerTLVCons(t, c) }
 
-    lazy val parseASingleTLV : Parser[BerTLVLeaf] = parseNonConstructedATag  ~ parseALength.
+    lazy val parseASingleTLV: Parser[BerTLVLeaf] = parseNonConstructedATag ~ parseALength.
       into(x => repN(x, parseSingleByte)) ^^ {
-        case t ~ v => BerTLVLeaf(t, v)
-      }
+      case t ~ v => BerTLVLeaf(t, v)
+    }
 
     lazy val parseNonConstructedATag: Parser[BerTag] = parseATag.withFilter(!_.isConstructed)
 
     lazy val parseAConstructedTag: Parser[BerTag] = parseATag.withFilter(_.isConstructed)
 
     lazy val parseALength: Parser[Int] = (parseSingleLength ^^ (_.toInt)) |
-      (parseMultipleLength ^^ (x => {new BigInteger(1, x.toArray).intValue()}))
+      (parseMultipleLength ^^ (x => {
+        new BigInteger(1, x.toArray).intValue()
+      }))
 
     lazy val parseSingleLength = parseSingleByte.
-      filter((x: Byte) => {(x & 0xFF) <= 0x7F}).withFailureMessage("Byte is more then 0x7F")
+      filter((x: Byte) => {
+      (x & 0xFF) <= 0x7F
+    }).withFailureMessage("Byte is more then 0x7F")
 
     lazy val parseMultipleLength = firstByteOfMultipleLength.into(parserNBytesOfLength)
 
-    lazy val parserNBytesOfLength : (Int => Parser[List[Byte]])= (x => repN(x, parseSingleByte))
+    lazy val parserNBytesOfLength: (Int => Parser[List[Byte]]) = (x => repN(x, parseSingleByte))
 
     lazy val firstByteOfMultipleLength = parseSingleByte.
-      filter((x: Byte) => {(x & 0xFF) > 0x7F}).map((x: Byte) => {(x & 0xFF) & 0x7F}).
+      filter((x: Byte) => {
+      (x & 0xFF) > 0x7F
+    }).map((x: Byte) => {
+      (x & 0xFF) & 0x7F
+    }).
       withFailureMessage("Byte is not more then 0x7F")
 
 
     lazy val parseATag: Parser[BerTag] = parseMoreByteTag | parseTwoByteTag | parseSingleByteTag
 
-    lazy val parseMoreByteTag = parseFirstByteOfTagWithMore ~ (parseSubsequentByteOfTagWithMore*) ~ parseSingleByte  ^^ {
+    lazy val parseMoreByteTag = parseFirstByteOfTagWithMore ~ (parseSubsequentByteOfTagWithMore *) ~ parseSingleByte ^^ {
       case f ~ s ~ l => BerTag(f :: s ++ List(l))
     }
 
-    lazy val parseTwoByteTag = parseFirstByteOfTagWithMore ~ parseSingleByte ^^ {case f ~ l => BerTag(f :: List(l))}
+    lazy val parseTwoByteTag = parseFirstByteOfTagWithMore ~ parseSingleByte ^^ { case f ~ l => BerTag(f :: List(l)) }
 
-    lazy val parseSingleByteTag = parseSingleByte ^^ {case l => BerTag(List(l))}
+    lazy val parseSingleByteTag = parseSingleByte ^^ { case l => BerTag(List(l)) }
 
     lazy val parseFirstByteOfTagWithMore = parseSingleByte.
       filter(BerTag.hasNextByte(_, 0)).withFailureMessage("Byte does not indicate more bytes")
@@ -234,15 +244,21 @@ object TLV {
       }
     }
 
+    def parseTlvForXBytes(totalSize: Int): Parser[BerTLV] =
+        parseASingleTLVForXBytes(totalSize) | parseAMultipleTLVForXBytes(totalSize)
+
+    def parseAMultipleTLVForXBytes(totalSize: Int): Parser[BerTLVCons] = parseAConstructedTag ~
+      parseALength.into(x => repParsingTLVForXByte(totalSize - x)) ^^ { case t ~ c => BerTLVCons(t, c) }
+
+    def parseASingleTLVForXBytes(totalSize: Int): Parser[BerTLVLeaf] = parseASingleTLV
+
     private def repParsingTLVForXByte(totalSize: Int): Parser[List[BerTLV]] = Parser { in =>
       val elems = new ListBuffer[BerTLV]
-
-      def continue(in: Input): ParseResult[List[BerTLV]] = {
+      def continue(in: Input, c:Int): ParseResult[List[BerTLV]] = {
         @tailrec def applyP(in0: Input): ParseResult[List[BerTLV]] = {
           val offSetBefore = in0.offset
           parseATLV(in0) match {
-            case Success(x, rest) if (offSetBefore - rest.offset < totalSize) =>
-              elems += x; applyP(rest)
+            case Success(x, rest) if (rest.offset - offSetBefore < totalSize) => elems += x; applyP(rest)
             case e@Error(_, _) => e // still have to propagate error
             case _ => Success(elems.toList, in0)
           }
@@ -251,9 +267,21 @@ object TLV {
         applyP(in)
       }
 
-      parseATLV(in) match {
-        case Success(x, rest) => elems += x ; continue(rest)
-        case ns: NoSuccess    => ns
+      if (totalSize <= 0) {
+        Success(Nil, in)
+      } else {
+        val offSetBefore = in.offset
+        parseATLV(in) match {
+          case Success(x, rest) => {
+            elems += x
+            if (rest.offset - offSetBefore  < totalSize) {
+              continue(rest, x.length)
+            } else {
+              Success(elems.toList, rest)
+            }
+          }
+          case ns: NoSuccess => ns
+        }
       }
     }
 
