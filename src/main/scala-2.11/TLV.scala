@@ -254,28 +254,28 @@ object TLV {
 
     private def repParsingTLVForXByte(totalSize: Int): Parser[List[BerTLV]] = Parser { in =>
       val elems = new ListBuffer[BerTLV]
-      def continue(in: Input, c:Int): ParseResult[List[BerTLV]] = {
-        @tailrec def applyP(in0: Input): ParseResult[List[BerTLV]] = {
-          val offSetBefore = in0.offset
+      def continue(in: Input, size:Int): ParseResult[List[BerTLV]] = {
+        @tailrec def applyP(in0: Input, size: Int): ParseResult[List[BerTLV]] = {
           parseATLV(in0) match {
-            case Success(x, rest) if (rest.offset - offSetBefore < totalSize) => elems += x; applyP(rest)
+            case Success(x, rest) if (consumed(in0, rest) < size) => {
+              elems += x
+              applyP(rest, size - consumed(in, rest))}
             case e@Error(_, _) => e // still have to propagate error
-            case _ => Success(elems.toList, in0)
+            case r@Success(x, rest) => elems += x; Success(elems.toList, rest)
           }
         }
 
-        applyP(in)
+        applyP(in, size)
       }
 
       if (totalSize <= 0) {
         Success(Nil, in)
       } else {
-        val offSetBefore = in.offset
         parseATLV(in) match {
           case Success(x, rest) => {
             elems += x
-            if (rest.offset - offSetBefore  < totalSize) {
-              continue(rest, x.length)
+            if (consumed(in, rest) < totalSize) {
+              continue(rest, totalSize - consumed(in, rest))
             } else {
               Success(elems.toList, rest)
             }
@@ -284,6 +284,9 @@ object TLV {
         }
       }
     }
+
+    private def consumed(in0: Input, in1: Input): Int =  in1.offset - in0.offset
+
 
   }
 

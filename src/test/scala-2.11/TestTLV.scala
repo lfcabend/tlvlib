@@ -420,6 +420,42 @@ class TestTLV extends FlatSpec with Matchers {
     r(37) should be(BerTLVLeaf(BerTag("DFFFFF07"), "2542313233343536303030303030303031375E53434D2054455354494E4720202020202020202020202020205E323031323230313137383739303030303030303030303433303030303030303F3B313233343536303030303030303031373D32303132323031313738373934333030303030303F"))
   }
 
+  it should "be able to parse a tlv list with nested TLVs" in {
+    val v0 = BerTLVLeaf(BerTag("80"), "0000")
+    val v1 = BerTLVCons(BerTag("A5"), List(v0, v0))
+    val v2 = BerTLVCons(BerTag("70"), List(v1, v1, v1))
+
+    val input = "701EA5088002000080020000A5088002000080020000A5088002000080020000701EA5088002000080020000A5088002000080020000A5088002000080020000"
+    val parser = new TLVParsers()
+    val r = parser.parseTLVList(input).get match {
+      case v : List[BerTLV] => v
+      case _ => fail("Should result in a list of TLV: ")
+    }
+    r.length should be(2)
+    r(0) should be (v2)
+    r(1) should be (v2)
+  }
+
+  it should "be able to parse a tlv list with TLVCons and Leafs" in {
+    val v0 = BerTLVLeaf(BerTag("80"), "0000")
+    val v1 = BerTLVCons(BerTag("A5"), List(v0, v0))
+    val v2 = BerTLVCons(BerTag("70"), List(v1, v1, v1))
+
+    val input = "701EA5088002000080020000A5088002000080020000A508800200008002000080020000701EA5088002000080020000A5088002000080020000A508800200008002000080020000"
+    val parser = new TLVParsers()
+    val r = parser.parseTLVList(input).get match {
+      case v : List[BerTLV] => v
+      case _ => fail("Should result in a list of TLV: ")
+    }
+    r.length should be(4)
+    r(0) should be (v2)
+    r(1) should be (v0)
+    r(2) should be (v2)
+    r(3) should be (v0)
+  }
+
+
+
   //todo add negative testcases for parsing
 
 }
