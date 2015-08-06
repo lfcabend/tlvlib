@@ -454,6 +454,14 @@ class TestTLV extends FlatSpec with Matchers {
     r(3) should be (v0)
   }
 
+  it should "be possible to pretty print TLV list" in {
+    val input = "701EA5088002000080020000A5088002000080020000A508800200008002000080020000701EA5088002000080020000A5088002000080020000A508800200008002000080020000"
+    val parser = new TLVParsers()
+    val r = parser.parseTLVList(input).get
+    val sss =  r.map(_.pretty).mkString.filter((c: Char) => c != '\n' && c != ' ' && c != '\t')
+    sss should be("70A5800000800000A5800000800000A580000080000080000070A5800000800000A5800000800000A5800000800000800000")
+  }
+
 
 
   //todo add negative testcases for parsing

@@ -32,6 +32,8 @@ object TLV {
 
     def serializeTLV: Seq[Byte]
 
+    def pretty: String
+
   }
 
   case class BerTag(value: Seq[Byte]) extends Tag {
@@ -65,16 +67,26 @@ object TLV {
 
   }
 
+  sealed case class PathEx(tag: BerTag, index: Int = 0)
+
+
   abstract class BerTLV extends TLV[BerTag, BerTLV] {
 
     //    def select(tag: Tag); ???
     //
-    //    def select(tag: Seq[Tag]); ???
+    def select(expression: Seq[PathEx]): Option[Seq[BerTLV]] = ???
+
+    def prettyWithDepth(depth: Int): String
+
+    def updated(tlv: BerTLV): BerTLV
+
+    def updated(expression: Seq[PathEx], tlv: BerTLV): BerTLV = ???
 
     def foldTLV[B](f: (BerTag, Seq[Byte]) => B, g: (BerTag, Seq[B]) => B): B = this match {
       case BerTLVLeaf(t, v) => f(t, v)
       case BerTLVCons(t, l) => g(t, l.map(_.foldTLV(f, g)))
     }
+
 
     override def serializeTLV: Seq[Byte] = {
       val f: (BerTag, Seq[Byte]) => Seq[Byte] =
@@ -145,9 +157,25 @@ object TLV {
     require(tag != null, "tag is null")
     require(value != null, "value is null")
 
+
+    override def updated(tlv: BerTLV): BerTLV =
+      if(tlv.tag == tag) tlv
+      else this
+
     override def toString() = s"BerTLVLeaf($tag, $value)"
 
     override def foreach[U](f: BerTLV => U): Unit = f(this)
+
+    override def pretty: String =
+      tag.toString() + " " + value.map("%02X" format _).mkString + "\n"
+
+    def prettyWithDepth(depth: Int): String =
+      "\t" * depth + pretty
+
+    override def select(expression: Seq[PathEx]): Option[Seq[BerTLV]] = expression match {
+      case (x::Nil) if x.index == 0 && x.tag == tag => Some(List(this))
+      case _ => None
+    }
 
   }
 
@@ -166,8 +194,29 @@ object TLV {
       })
     }
 
+    def updated(tlv: BerTLV): BerTLV =
+      if(tlv.tag == tag) tlv
+      else BerTLVCons(tag, constructedValue.map(_.updated(tlv)))
+
     override def value: Seq[Byte] = constructedValue.flatMap(x => x.serializeTLV)
 
+    override def pretty: String = prettyWithDepth(0)
+
+    override def prettyWithDepth(depth: Int): String =
+      "\t" * depth + tag.toString() + "\n" + constructedValue.map(_.prettyWithDepth(depth + 1)).mkString
+
+    override def select(expression: Seq[PathEx]): Option[Seq[BerTLV]] = expression match {
+      case (x::Nil) if x.index == 0 && x.tag == tag => Some(List(this))
+      case (x::xs) if x.index == 0 && x.tag == tag => constructedValue.flatMap(x => x.select(xs)).fold(Nil)(_ ++ _) match {
+        case v@(y::ys) => Some(List(BerTLVCons(tag, v)))
+        case _ => None
+      }
+      case ex@(x::xs) if x.tag != tag => constructedValue.flatMap(x => x.select(ex)).fold(Nil)(_ ++ _) match {
+        case v@(y::ys) => Some(v)
+        case _ => None
+      }
+      case _ => None
+    }
   }
 
   class TLVParsers extends BinaryParsers {
@@ -261,7 +310,7 @@ object TLV {
               elems += x
               applyP(rest, size - consumed(in, rest))}
             case e@Error(_, _) => e // still have to propagate error
-            case r@Success(x, rest) => elems += x; Success(elems.toList, rest)
+            case Success(x, rest) => elems += x; Success(elems.toList, rest)
           }
         }
 
@@ -271,24 +320,12 @@ object TLV {
       if (totalSize <= 0) {
         Success(Nil, in)
       } else {
-        parseATLV(in) match {
-          case Success(x, rest) => {
-            elems += x
-            if (consumed(in, rest) < totalSize) {
-              continue(rest, totalSize - consumed(in, rest))
-            } else {
-              Success(elems.toList, rest)
-            }
-          }
-          case ns: NoSuccess => ns
-        }
+        continue(in, totalSize)
       }
     }
 
     private def consumed(in0: Input, in1: Input): Int =  in1.offset - in0.offset
 
-
   }
-
 
 }
