@@ -67,14 +67,22 @@ object TLV {
 
   }
 
-  sealed case class PathEx(tag: BerTag, index: Int = 0)
+  abstract class PathEx {
+
+    def tag: BerTag
+
+  }
+
+  sealed case class PathExWithoutIndex(tag: BerTag) extends PathEx
+
+  sealed case class PathExWithIndex(tag: BerTag, index: Int = 0) extends PathEx
 
 
   abstract class BerTLV extends TLV[BerTag, BerTLV] {
 
-    //    def select(tag: Tag); ???
-    //
-    def select(expression: Seq[PathEx]): Option[Seq[BerTLV]] = ???
+    def select(expression: List[PathEx]): Option[List[BerTLV]] = selectInternal(expression)._1
+
+    def selectInternal(expression: List[PathEx]): (Option[List[BerTLV]], List[PathEx])
 
     def prettyWithDepth(depth: Int): String
 
@@ -159,7 +167,7 @@ object TLV {
 
 
     override def updated(tlv: BerTLV): BerTLV =
-      if(tlv.tag == tag) tlv
+      if (tlv.tag == tag) tlv
       else this
 
     override def toString() = s"BerTLVLeaf($tag, $value)"
@@ -172,9 +180,19 @@ object TLV {
     def prettyWithDepth(depth: Int): String =
       "\t" * depth + pretty
 
-    override def select(expression: Seq[PathEx]): Option[Seq[BerTLV]] = expression match {
-      case (x::Nil) if x.index == 0 && x.tag == tag => Some(List(this))
-      case _ => None
+    override def selectInternal(expression: List[PathEx]): (Option[List[BerTLV]], List[PathEx]) = expression match {
+      case ((x: PathExWithoutIndex) :: Nil) if x.tag == tag =>
+        println(s"selectInternal leaf match tag: ${x.tag}")
+        (Some(List(this)), expression)
+      case ((x: PathExWithIndex) :: Nil) if x.index == 0 && x.tag == tag =>
+        println(s"selectInternal leaf match tag ${x.tag} with index ${x.index}")
+        (Some(List(this)), List(PathExWithIndex(x.tag, x.index - 1)))
+      case ((x: PathExWithIndex) :: Nil) if x.index != 0 && x.tag == tag =>
+        println(s"selectInternal leaf match tag ${x.tag},but no index ${x.index}")
+        (None, List(PathExWithIndex(x.tag, x.index - 1)))
+      case _ =>
+        println(s"did not matched leaf tag ${tag}")
+        (None, expression)
     }
 
   }
@@ -195,7 +213,7 @@ object TLV {
     }
 
     def updated(tlv: BerTLV): BerTLV =
-      if(tlv.tag == tag) tlv
+      if (tlv.tag == tag) tlv
       else BerTLVCons(tag, constructedValue.map(_.updated(tlv)))
 
     override def value: Seq[Byte] = constructedValue.flatMap(x => x.serializeTLV)
@@ -205,17 +223,43 @@ object TLV {
     override def prettyWithDepth(depth: Int): String =
       "\t" * depth + tag.toString() + "\n" + constructedValue.map(_.prettyWithDepth(depth + 1)).mkString
 
-    override def select(expression: Seq[PathEx]): Option[Seq[BerTLV]] = expression match {
-      case (x::Nil) if x.index == 0 && x.tag == tag => Some(List(this))
-      case (x::xs) if x.index == 0 && x.tag == tag => constructedValue.flatMap(x => x.select(xs)).fold(Nil)(_ ++ _) match {
-        case v@(y::ys) => Some(List(BerTLVCons(tag, v)))
-        case _ => None
+    override def selectInternal(expression: List[PathEx]): (Option[List[BerTLV]], List[PathEx]) = {
+      val foldFunc: (BerTLV, (Option[List[BerTLV]], List[PathEx])) => (Option[List[BerTLV]], List[PathEx]) = {
+        (tlv, currentResult) => {
+          val (cTLV, cEx) = currentResult
+          val (nTLV, nEx) = tlv.selectInternal(currentResult._2)
+          val r = (cTLV, nTLV) match {
+            case (Some(v1), Some(v2)) => Some(v1 ++ v2)
+            case (None, Some(v2)) => Some(v2)
+            case (Some(v1), None) => Some(v1)
+            case _ => None
+          }
+          (r, nEx)
+        }
       }
-      case ex@(x::xs) if x.tag != tag => constructedValue.flatMap(x => x.select(ex)).fold(Nil)(_ ++ _) match {
-        case v@(y::ys) => Some(v)
-        case _ => None
+      val cons: Option[List[BerTLV]] => Option[List[BerTLV]] = x1 =>  x1.map(x => List(BerTLVCons(tag, x)))
+      val z0: (Option[List[BerTLV]], List[PathEx]) = (None, expression.tail)
+      val z1: (Option[List[BerTLV]], List[PathEx]) = (None, expression)
+      expression match {
+        case ((x: PathExWithoutIndex) :: Nil) if x.tag == tag =>
+          (Some(List(this)), x :: Nil)
+        case ((x: PathExWithIndex) :: Nil) if x.index == 0 && x.tag == tag =>
+          (Some(List(this)), List(PathExWithIndex(x.tag, x.index - 1)))
+        case ((x: PathExWithIndex) :: Nil) if x.index != 0 && x.tag == tag =>
+          (None, List(PathExWithIndex(x.tag, x.index - 1))) //maybe we should continue recursively since it can still occur
+        case ((x: PathExWithoutIndex) :: xs) if x.tag == tag =>
+          val r = constructedValue.foldLeft(z0)((p1, p2) => foldFunc(p2, p1))
+          (cons(r._1), x :: r._2)
+        case ((x: PathExWithIndex) :: xs) if x.index == 0 && x.tag == tag =>
+          val r = constructedValue.foldLeft(z0)((p1, p2) => foldFunc(p2, p1))
+          (cons(r._1), PathExWithIndex(x.tag, x.index - 1) :: r._2)
+        case ((x: PathExWithIndex) :: xs) if x.index != 0 && x.tag == tag =>
+          (None, PathExWithIndex(x.tag, x.index - 1) :: xs) //maybe we should continue recursively since it can still occur
+        case ex@(x :: xs) if x.tag != tag =>
+          constructedValue.foldLeft(z1)((p1, p2) => foldFunc(p2, p1))
+        case _ =>
+          (None, expression)
       }
-      case _ => None
     }
   }
 
@@ -294,7 +338,7 @@ object TLV {
     }
 
     def parseTlvForXBytes(totalSize: Int): Parser[BerTLV] =
-        parseASingleTLVForXBytes(totalSize) | parseAMultipleTLVForXBytes(totalSize)
+      parseASingleTLVForXBytes(totalSize) | parseAMultipleTLVForXBytes(totalSize)
 
     def parseAMultipleTLVForXBytes(totalSize: Int): Parser[BerTLVCons] = parseAConstructedTag ~
       parseALength.into(x => repParsingTLVForXByte(totalSize - x)) ^^ { case t ~ c => BerTLVCons(t, c) }
@@ -303,12 +347,13 @@ object TLV {
 
     private def repParsingTLVForXByte(totalSize: Int): Parser[List[BerTLV]] = Parser { in =>
       val elems = new ListBuffer[BerTLV]
-      def continue(in: Input, size:Int): ParseResult[List[BerTLV]] = {
+      def continue(in: Input, size: Int): ParseResult[List[BerTLV]] = {
         @tailrec def applyP(in0: Input, size: Int): ParseResult[List[BerTLV]] = {
           parseATLV(in0) match {
             case Success(x, rest) if (consumed(in0, rest) < size) => {
               elems += x
-              applyP(rest, size - consumed(in, rest))}
+              applyP(rest, size - consumed(in, rest))
+            }
             case e@Error(_, _) => e // still have to propagate error
             case Success(x, rest) => elems += x; Success(elems.toList, rest)
           }
@@ -324,7 +369,7 @@ object TLV {
       }
     }
 
-    private def consumed(in0: Input, in1: Input): Int =  in1.offset - in0.offset
+    private def consumed(in0: Input, in1: Input): Int = in1.offset - in0.offset
 
   }
 
