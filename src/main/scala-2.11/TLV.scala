@@ -67,28 +67,28 @@ object TLV {
 
   }
 
-  abstract class PathEx {
+  abstract class PathX {
 
     def tag: BerTag
 
   }
 
-  sealed case class PathExWithoutIndex(tag: BerTag) extends PathEx
+  sealed case class PathEx(tag: BerTag) extends PathX
 
-  sealed case class PathExWithIndex(tag: BerTag, index: Int = 0) extends PathEx
+  sealed case class PathExIndex(tag: BerTag, index: Int = 0) extends PathX
 
 
   abstract class BerTLV extends TLV[BerTag, BerTLV] {
 
-    def select(expression: List[PathEx]): Option[List[BerTLV]] = selectInternal(expression)._1
+    def select(expression: List[PathX]): Option[List[BerTLV]] = selectInternal(expression)._1
 
-    def selectInternal(expression: List[PathEx]): (Option[List[BerTLV]], List[PathEx])
+    def selectInternal(expression: List[PathX]): (Option[List[BerTLV]], List[PathX])
 
     def prettyWithDepth(depth: Int): String
 
     def updated(tlv: BerTLV): BerTLV
 
-    def updated(expression: Seq[PathEx], tlv: BerTLV): BerTLV = ???
+    def updated(expression: Seq[PathX], tlv: BerTLV): BerTLV = ???
 
     def foldTLV[B](f: (BerTag, Seq[Byte]) => B, g: (BerTag, Seq[B]) => B): B = this match {
       case BerTLVLeaf(t, v) => f(t, v)
@@ -180,16 +180,16 @@ object TLV {
     def prettyWithDepth(depth: Int): String =
       "\t" * depth + pretty
 
-    override def selectInternal(expression: List[PathEx]): (Option[List[BerTLV]], List[PathEx]) = expression match {
-      case ((x: PathExWithoutIndex) :: Nil) if x.tag == tag =>
+    override def selectInternal(expression: List[PathX]): (Option[List[BerTLV]], List[PathX]) = expression match {
+      case ((x: PathEx) :: Nil) if x.tag == tag =>
         println(s"selectInternal leaf match tag: ${x.tag}")
         (Some(List(this)), expression)
-      case ((x: PathExWithIndex) :: Nil) if x.index == 0 && x.tag == tag =>
+      case ((x: PathExIndex) :: Nil) if x.index == 0 && x.tag == tag =>
         println(s"selectInternal leaf match tag ${x.tag} with index ${x.index}")
-        (Some(List(this)), List(PathExWithIndex(x.tag, x.index - 1)))
-      case ((x: PathExWithIndex) :: Nil) if x.index != 0 && x.tag == tag =>
+        (Some(List(this)), List(PathExIndex(x.tag, x.index - 1)))
+      case ((x: PathExIndex) :: Nil) if x.index != 0 && x.tag == tag =>
         println(s"selectInternal leaf match tag ${x.tag},but no index ${x.index}")
-        (None, List(PathExWithIndex(x.tag, x.index - 1)))
+        (None, List(PathExIndex(x.tag, x.index - 1)))
       case _ =>
         println(s"did not matched leaf tag ${tag}")
         (None, expression)
@@ -223,10 +223,10 @@ object TLV {
     override def prettyWithDepth(depth: Int): String =
       "\t" * depth + tag.toString() + "\n" + constructedValue.map(_.prettyWithDepth(depth + 1)).mkString
 
-    override def selectInternal(expression: List[PathEx]): (Option[List[BerTLV]], List[PathEx]) = {
-      val foldFunc: (BerTLV, (Option[List[BerTLV]], List[PathEx])) => (Option[List[BerTLV]], List[PathEx]) = {
+    override def selectInternal(expression: List[PathX]): (Option[List[BerTLV]], List[PathX]) = {
+      val foldFunc: (BerTLV, (Option[List[BerTLV]], List[PathX])) => (Option[List[BerTLV]], List[PathX]) = {
         (tlv, currentResult) => {
-          val (cTLV, cEx) = currentResult
+          val (cTLV, _) = currentResult
           val (nTLV, nEx) = tlv.selectInternal(currentResult._2)
           val r = (cTLV, nTLV) match {
             case (Some(v1), Some(v2)) => Some(v1 ++ v2)
@@ -238,23 +238,23 @@ object TLV {
         }
       }
       val cons: Option[List[BerTLV]] => Option[List[BerTLV]] = x1 =>  x1.map(x => List(BerTLVCons(tag, x)))
-      val z0: (Option[List[BerTLV]], List[PathEx]) = (None, expression.tail)
-      val z1: (Option[List[BerTLV]], List[PathEx]) = (None, expression)
+      val z0: (Option[List[BerTLV]], List[PathX]) = (None, expression.tail)
+      val z1: (Option[List[BerTLV]], List[PathX]) = (None, expression)
       expression match {
-        case ((x: PathExWithoutIndex) :: Nil) if x.tag == tag =>
+        case ((x: PathEx) :: Nil) if x.tag == tag =>
           (Some(List(this)), x :: Nil)
-        case ((x: PathExWithIndex) :: Nil) if x.index == 0 && x.tag == tag =>
-          (Some(List(this)), List(PathExWithIndex(x.tag, x.index - 1)))
-        case ((x: PathExWithIndex) :: Nil) if x.index != 0 && x.tag == tag =>
-          (None, List(PathExWithIndex(x.tag, x.index - 1))) //maybe we should continue recursively since it can still occur
-        case ((x: PathExWithoutIndex) :: xs) if x.tag == tag =>
+        case ((x: PathExIndex) :: Nil) if x.index == 0 && x.tag == tag =>
+          (Some(List(this)), List(PathExIndex(x.tag, x.index - 1)))
+        case ((x: PathExIndex) :: Nil) if x.index != 0 && x.tag == tag =>
+          (None, List(PathExIndex(x.tag, x.index - 1))) //maybe we should continue recursively since it can still occur
+        case ((x: PathEx) :: xs) if x.tag == tag =>
           val r = constructedValue.foldLeft(z0)((p1, p2) => foldFunc(p2, p1))
           (cons(r._1), x :: r._2)
-        case ((x: PathExWithIndex) :: xs) if x.index == 0 && x.tag == tag =>
+        case ((x: PathExIndex) :: xs) if x.index == 0 && x.tag == tag =>
           val r = constructedValue.foldLeft(z0)((p1, p2) => foldFunc(p2, p1))
-          (cons(r._1), PathExWithIndex(x.tag, x.index - 1) :: r._2)
-        case ((x: PathExWithIndex) :: xs) if x.index != 0 && x.tag == tag =>
-          (None, PathExWithIndex(x.tag, x.index - 1) :: xs) //maybe we should continue recursively since it can still occur
+          (cons(r._1), PathExIndex(x.tag, x.index - 1) :: r._2)
+        case ((x: PathExIndex) :: xs) if x.index != 0 && x.tag == tag =>
+          (None, PathExIndex(x.tag, x.index - 1) :: xs) //maybe we should continue recursively since it can still occur
         case ex@(x :: xs) if x.tag != tag =>
           constructedValue.foldLeft(z1)((p1, p2) => foldFunc(p2, p1))
         case _ =>
