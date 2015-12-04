@@ -138,7 +138,8 @@ class TestTLV extends FlatSpec with Matchers {
 
   it should "be possible not to select the tag from a leaf with index" in {
     val v = BerTLVLeaf(BerTag(hex2Bytes("80")), "0000")
-    val selected = v.select(List(PathExIndex("80", 10)))
+    val selected = v.
+      select(List(PathExIndex("80", 10)))
     selected should be(None)
   }
 

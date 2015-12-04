@@ -88,7 +88,9 @@ object TLV {
 
     def updated(tlv: BerTLV): BerTLV
 
-    def updated(expression: Seq[PathX], tlv: BerTLV): BerTLV = ???
+    def updated(expression: Seq[PathX], tlv: BerTLV): BerTLV = updatedInternal(expression, tlv)._1
+
+    def updatedInternal(expression: Seq[PathX], tlv: BerTLV): (BerTLV, Seq[PathX])
 
     def foldTLV[B](f: (BerTag, Seq[Byte]) => B, g: (BerTag, Seq[B]) => B): B = this match {
       case BerTLVLeaf(t, v) => f(t, v)
@@ -182,17 +184,24 @@ object TLV {
 
     override def selectInternal(expression: List[PathX]): (Option[List[BerTLV]], List[PathX]) = expression match {
       case ((x: PathEx) :: Nil) if x.tag == tag =>
-        println(s"selectInternal leaf match tag: ${x.tag}")
         (Some(List(this)), expression)
       case ((x: PathExIndex) :: Nil) if x.index == 0 && x.tag == tag =>
-        println(s"selectInternal leaf match tag ${x.tag} with index ${x.index}")
         (Some(List(this)), List(PathExIndex(x.tag, x.index - 1)))
       case ((x: PathExIndex) :: Nil) if x.index != 0 && x.tag == tag =>
-        println(s"selectInternal leaf match tag ${x.tag},but no index ${x.index}")
         (None, List(PathExIndex(x.tag, x.index - 1)))
       case _ =>
-        println(s"did not matched leaf tag ${tag}")
         (None, expression)
+    }
+
+    override def updatedInternal(expression: Seq[PathX], tlv: BerTLV): (BerTLV, Seq[PathX]) = expression match {
+      case ((x: PathEx) :: Nil) if x.tag == tag =>
+        (tlv, expression)
+      case ((x: PathExIndex) :: Nil) if x.index == 0 && x.tag == tag =>
+        (tlv, List(PathExIndex(x.tag, x.index - 1)))
+      case ((x: PathExIndex) :: Nil) if x.index != 0 && x.tag == tag =>
+        (this, List(PathExIndex(x.tag, x.index - 1)))
+      case _ =>
+        (this, expression)
     }
 
   }
@@ -261,6 +270,30 @@ object TLV {
           (None, expression)
       }
     }
+
+    override def updatedInternal(expression: Seq[PathX], tlv: BerTLV): (BerTLV, Seq[PathX]) = {
+      expression match {
+        case ((x: PathEx) :: Nil) if x.tag == tag =>
+          (tlv, x :: Nil)
+        case ((x: PathExIndex) :: Nil) if x.index == 0 && x.tag == tag =>
+          (tlv, List(PathExIndex(x.tag, x.index - 1)))
+        case ((x: PathExIndex) :: Nil) if x.index != 0 && x.tag == tag =>
+          (this, List(PathExIndex(x.tag, x.index - 1))) //maybe we should continue recursively since it can still occur
+        case ((x: PathEx) :: xs) if x.tag == tag =>
+          val r = constructedValue.foldLeft(z0)((p1, p2) => foldFunc(p2, p1))
+          (cons(r._1), x :: r._2)
+        case ((x: PathExIndex) :: xs) if x.index == 0 && x.tag == tag =>
+          val r = constructedValue.foldLeft(z0)((p1, p2) => foldFunc(p2, p1))
+          (cons(r._1), PathExIndex(x.tag, x.index - 1) :: r._2)
+        case ((x: PathExIndex) :: xs) if x.index != 0 && x.tag == tag =>
+          (None, PathExIndex(x.tag, x.index - 1) :: xs) //maybe we should continue recursively since it can still occur
+        case ex@(x :: xs) if x.tag != tag =>
+          constructedValue.foldLeft(z1)((p1, p2) => foldFunc(p2, p1))
+        case _ =>
+          (None, expression)
+      }
+    }
+
   }
 
   class TLVParsers extends BinaryParsers {
