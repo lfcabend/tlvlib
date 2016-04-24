@@ -124,11 +124,34 @@ class TestTLV extends FlatSpec with Matchers {
     selected should be(Some(List(v)))
   }
 
+  it should "be possible to update a leaf" in {
+    val v = BerTLVLeaf(BerTag(hex2Bytes("80")), "0000")
+    val n = BerTLVLeaf(BerTag(hex2Bytes("80")), "0001")
+    val u = v.updated(n)
+    u should be(n)
+  }
+
+  it should "not update a leaf when tag does not match" in {
+    val v = BerTLVLeaf(BerTag(hex2Bytes("80")), "0000")
+    val n = BerTLVLeaf(BerTag(hex2Bytes("81")), "0001")
+    val u = v.updated(n)
+    u should not be(n)
+    u should be(v)
+  }
+
   it should "be possible to select the tag from a leaf with index" in {
     val v = BerTLVLeaf(BerTag(hex2Bytes("80")), "0000")
     val selected = v.select(List(PathExIndex("80", 0)))
     selected should be(Some(List(v)))
   }
+
+  it should "be possible to update the tag from a leaf with index" in {
+    val v = BerTLVLeaf(BerTag(hex2Bytes("80")), "0000")
+    val n = BerTLVLeaf(BerTag(hex2Bytes("81")), "0001")
+    val updated = v.updated(List(PathExIndex("80", 0)), n)
+    updated should be(n)
+  }
+
 
   it should "be possible not to select the tag from a leaf with no index" in {
     val v = BerTLVLeaf(BerTag(hex2Bytes("80")), "0000")
@@ -277,6 +300,19 @@ class TestTLV extends FlatSpec with Matchers {
     selected should be(Some(List(v0)))
   }
 
+  it should "be able to update a leaf in a cons" in {
+    val v0 = BerTLVLeaf(BerTag("80"), "0000")
+    val v00 = BerTLVLeaf(BerTag("81"), "0101")
+    val v1 = BerTLVCons(BerTag("A5"), List(v0, v00))
+    val v2 = BerTLVCons(BerTag("70"), List(v1))
+
+    val v0New = BerTLVLeaf(BerTag("80"), "0001")
+    val v1New = BerTLVCons(BerTag("A5"), List(v0New, v00))
+    val v2New = BerTLVCons(BerTag("70"), List(v1New))
+    val updated = v2.updated(v0New)
+    updated should be(v2New)
+  }
+
   it should "be able to select multiple leafs in a cons" in {
     val v0 = BerTLVLeaf(BerTag("80"), "0000")
     val v00 = BerTLVLeaf(BerTag("81"), "0101")
@@ -285,6 +321,20 @@ class TestTLV extends FlatSpec with Matchers {
 
     val selected = v2.select(List(PathEx("80")))
     selected should be(Some(List(v0, v0, v0)))
+  }
+
+  it should "be able to update multiple leafs in a cons" in {
+    val v0 = BerTLVLeaf(BerTag("80"), "0000")
+    val v00 = BerTLVLeaf(BerTag("81"), "0101")
+    val v1 = BerTLVCons(BerTag("A5"), List(v0, v00))
+    val v2 = BerTLVCons(BerTag("70"), List(v1, v1, v1))
+
+    val v0New = BerTLVLeaf(BerTag("80"), "0001")
+    val v1New = BerTLVCons(BerTag("A5"), List(v0New, v00))
+    val v2New = BerTLVCons(BerTag("70"), List(v1New, v1New, v1New))
+
+    val updated = v2.updated(v0New)
+    updated should be(v2New)
   }
 
   it should "be able to select constructed TLV" in {
@@ -402,6 +452,8 @@ class TestTLV extends FlatSpec with Matchers {
     leaf.length should be(128)
     leaf.value should be(bytes)
   }
+
+
 
   it should "be able to parse a BerTLVLeaf with 2 byte length value 255" in {
     val parser = new TLVParsers()

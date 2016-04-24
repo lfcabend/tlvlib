@@ -88,9 +88,9 @@ object TLV {
 
     def updated(tlv: BerTLV): BerTLV
 
-    def updated(expression: Seq[PathX], tlv: BerTLV): BerTLV = updatedInternal(expression, tlv)._1
+    def updated(expression: List[PathX], tlv: BerTLV): BerTLV = updatedInternal(expression, tlv)._1
 
-    def updatedInternal(expression: Seq[PathX], tlv: BerTLV): (BerTLV, Seq[PathX])
+    def updatedInternal(expression: List[PathX], tlv: BerTLV): (BerTLV, List[PathX])
 
     def foldTLV[B](f: (BerTag, Seq[Byte]) => B, g: (BerTag, Seq[B]) => B): B = this match {
       case BerTLVLeaf(t, v) => f(t, v)
@@ -135,9 +135,9 @@ object TLV {
     }
   }
 
-  implicit def seqToTLVSeq(s: Seq[BerTLV]) = new TLVSeq(s)
+  implicit def seqToTLVSeq(s: List[BerTLV]) = new TLVSeq(s)
 
-  class TLVSeq(s: Seq[BerTLV]) {
+  class TLVSeq(s: List[BerTLV]) {
 
     def >>:(tag: BerTag) = BerTLVCons(tag, s)
 
@@ -193,7 +193,7 @@ object TLV {
         (None, expression)
     }
 
-    override def updatedInternal(expression: Seq[PathX], tlv: BerTLV): (BerTLV, Seq[PathX]) = expression match {
+    override def updatedInternal(expression: List[PathX], tlv: BerTLV): (BerTLV, List[PathX]) = expression match {
       case ((x: PathEx) :: Nil) if x.tag == tag =>
         (tlv, expression)
       case ((x: PathExIndex) :: Nil) if x.index == 0 && x.tag == tag =>
@@ -206,7 +206,7 @@ object TLV {
 
   }
 
-  sealed case class BerTLVCons(tag: BerTag, constructedValue: Seq[BerTLV]) extends BerTLV {
+  sealed case class BerTLVCons(tag: BerTag, constructedValue: List[BerTLV]) extends BerTLV {
     require(tag != null, "tag is null")
     require(tag.isConstructed, "need a constructed tag")
     require(constructedValue != null, "value is null or empty")
@@ -271,7 +271,16 @@ object TLV {
       }
     }
 
-    override def updatedInternal(expression: Seq[PathX], tlv: BerTLV): (BerTLV, Seq[PathX]) = {
+    override def updatedInternal(expression: List[PathX], tlv: BerTLV): (BerTLV, List[PathX]) = {
+      val foldFunc: (BerTLV, (List[BerTLV], List[PathX])) => (List[BerTLV], List[PathX]) = {
+        (tlv, currentResult) => {
+          val (cTLV, _) = currentResult
+          val (nTLV, nEx) = tlv.updatedInternal(currentResult._2, tlv)
+          (cTLV ++ nTLV, nEx)
+        }
+      }
+      val z0: (List[BerTLV], List[PathX]) = (Nil, expression.tail)
+      val z1: (List[BerTLV], List[PathX]) = (Nil, expression)
       expression match {
         case ((x: PathEx) :: Nil) if x.tag == tag =>
           (tlv, x :: Nil)
@@ -281,16 +290,17 @@ object TLV {
           (this, List(PathExIndex(x.tag, x.index - 1))) //maybe we should continue recursively since it can still occur
         case ((x: PathEx) :: xs) if x.tag == tag =>
           val r = constructedValue.foldLeft(z0)((p1, p2) => foldFunc(p2, p1))
-          (cons(r._1), x :: r._2)
+          (BerTLVCons(tag, r._1), x :: r._2)
         case ((x: PathExIndex) :: xs) if x.index == 0 && x.tag == tag =>
           val r = constructedValue.foldLeft(z0)((p1, p2) => foldFunc(p2, p1))
-          (cons(r._1), PathExIndex(x.tag, x.index - 1) :: r._2)
+          (BerTLVCons(tag, r._1), PathExIndex(x.tag, x.index - 1) :: r._2)
         case ((x: PathExIndex) :: xs) if x.index != 0 && x.tag == tag =>
-          (None, PathExIndex(x.tag, x.index - 1) :: xs) //maybe we should continue recursively since it can still occur
+          (this, PathExIndex(x.tag, x.index - 1) :: xs) //maybe we should continue recursively since it can still occur
         case ex@(x :: xs) if x.tag != tag =>
-          constructedValue.foldLeft(z1)((p1, p2) => foldFunc(p2, p1))
+          val r = constructedValue.foldLeft(z1)((p1, p2) => foldFunc(p2, p1))
+          (BerTLVCons(tag, r._1), r._2)
         case _ =>
-          (None, expression)
+          (this, expression)
       }
     }
 
