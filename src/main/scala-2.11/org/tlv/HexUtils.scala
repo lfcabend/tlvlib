@@ -1,6 +1,8 @@
+package org.tlv
+
 /**
- * Created by lau on 11-7-15.
- */
+  * Created by lau on 11-7-15.
+  */
 object HexUtils {
 
   def hex2Bytes(hex: String): Array[Byte] = {

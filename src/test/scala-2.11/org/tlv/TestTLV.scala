@@ -1,12 +1,12 @@
+package org.tlv
+
 /**
- * Created by lau on 15-7-15.
- */
+  * Created by lau on 15-7-15.
+  */
 
 import org.scalatest._
-import HexUtils._
-import TLV._
-
-import scala.collection.immutable.Vector
+import org.tlv.TLV._
+import HexUtils.hex2Bytes
 
 class TestTLV extends FlatSpec with Matchers {
 
@@ -52,8 +52,6 @@ class TestTLV extends FlatSpec with Matchers {
       BerTag("1F0000")
     }
   }
-
-
 
   "A BerTLVLeaf" should "be able to be constructed" in {
     val v = BerTLVLeaf(BerTag("80"), "0000")
@@ -135,7 +133,7 @@ class TestTLV extends FlatSpec with Matchers {
     val v = BerTLVLeaf(BerTag(hex2Bytes("80")), "0000")
     val n = BerTLVLeaf(BerTag(hex2Bytes("81")), "0001")
     val u = v.updated(n)
-    u should not be(n)
+    u should not be (n)
     u should be(v)
   }
 
@@ -195,7 +193,6 @@ class TestTLV extends FlatSpec with Matchers {
     }
   }
 
-
   "A BerTLVCons" should "be able to be constructed" in {
     val v0 = BerTLVLeaf(BerTag("80"), "0000")
 
@@ -246,8 +243,8 @@ class TestTLV extends FlatSpec with Matchers {
     v2.value should be(hex2Bytes("A5088002000080020000A5088002000080020000A5088002000080020000"))
     v2.constructedValue should be(List(v1, v1, v1))
 
-    val validate80Tag:(BerTLV => Unit) = {
-      case y @ BerTLVLeaf(t, cv) => {
+    val validate80Tag: (BerTLV => Unit) = {
+      case y@BerTLVLeaf(t, cv) => {
         t should be(BerTag("80"))
         y.length should be(2)
         cv should be(hex2Bytes("0000"))
@@ -256,7 +253,7 @@ class TestTLV extends FlatSpec with Matchers {
     }
 
     val validateA5Tag: (BerTLV => Unit) = {
-      case y @ BerTLVCons(t, cv) => {
+      case y@BerTLVCons(t, cv) => {
         t should be(BerTag("A5"))
         y.length should be(8)
         cv should be(List(v0, v0))
@@ -349,6 +346,22 @@ class TestTLV extends FlatSpec with Matchers {
     selected should be(Some(List(BerTLVCons("A5", List(v0)))))
   }
 
+  it should "be able to update constructed TLV" in {
+    val v0 = BerTLVLeaf(BerTag("80"), "0000")
+    val v00 = BerTLVLeaf(BerTag("81"), "0101")
+
+    val v1 = BerTLVCons(BerTag("A5"), List(v0, v00))
+    val v2 = BerTLVCons(BerTag("70"), List(v1))
+
+    val v0New = BerTLVLeaf(BerTag("80"), "0202")
+    val v00New = BerTLVLeaf(BerTag("81"), "0303")
+    val v1New = BerTLVCons(BerTag("A5"), List(v0New, v00New))
+    val v2New = BerTLVCons(BerTag("70"), List(v1New))
+
+    val updated = v2.updated(v1New)
+    updated should be(v2New)
+  }
+
   it should "be able to select constructed TLV 3 levels deep" in {
     val v0 = BerTLVLeaf(BerTag("80"), "0000")
     val v00 = BerTLVLeaf(BerTag("81"), "0101")
@@ -373,6 +386,21 @@ class TestTLV extends FlatSpec with Matchers {
     val v2 = BerTLVCons(BerTag("70"), List(v11, v12))
 
     val selected = v2.select(List(PathEx("70"), PathExIndex("A5", 1), PathEx("81")))
+    selected should be(Some(List(BerTLVCons("70", List(BerTLVCons("A5", List(v01)))))))
+  }
+
+  it should "be able to select constructed TLV 3 levels deep with index with the arrow op" in {
+    val v0 = BerTLVLeaf(BerTag("80"), "0000")
+    val v00 = BerTLVLeaf(BerTag("81"), "0101")
+    val v01 = BerTLVLeaf(BerTag("81"), "0202")
+
+    val v11 = BerTLVCons(BerTag("A5"), List(v0, v00))
+
+    val v12 = BerTLVCons(BerTag("A5"), List(v0, v01))
+
+    val v2 = BerTLVCons(BerTag("70"), List(v11, v12))
+
+    val selected = v2 -> ("70", ("A5", 1), "81")
     selected should be(Some(List(BerTLVCons("70", List(BerTLVCons("A5", List(v01)))))))
   }
 
@@ -485,7 +513,7 @@ class TestTLV extends FlatSpec with Matchers {
     val parser = new TLVParsers()
     val v01 = BerTLVLeaf(BerTag("80"), "0001")
     parser.parseTLV("A50480020001").get match {
-      case a @ BerTLVCons(t, c) => {
+      case a@BerTLVCons(t, c) => {
         t should be(BerTag("A5"))
         a.length should be(4)
         c.length should be(1)
@@ -500,7 +528,7 @@ class TestTLV extends FlatSpec with Matchers {
     val v01 = BerTLVLeaf(BerTag("80"), "0001")
     val v02 = BerTLVLeaf(BerTag("80"), "0002")
     parser.parseTLV("A5088002000180020002").get match {
-      case a @ BerTLVCons(t, c) => {
+      case a@BerTLVCons(t, c) => {
         t should be(BerTag("A5"))
         a.length should be(8)
         c.length should be(2)
@@ -514,7 +542,7 @@ class TestTLV extends FlatSpec with Matchers {
   it should "be able to parse a BerTLVCons with no value" in {
     val parser = new TLVParsers()
     parser.parseTLV("A500").get match {
-      case a @ BerTLVCons(t, c) => {
+      case a@BerTLVCons(t, c) => {
         t should be(BerTag("A5"))
         a.length should be(0)
         c should be(Nil)
@@ -530,7 +558,7 @@ class TestTLV extends FlatSpec with Matchers {
     val v2 = BerTLVCons(BerTag("70"), List(v1, v1, v1))
 
     parser.parseTLV("701EA5088002000080020000A5088002000080020000A5088002000080020000").get match {
-      case a @ BerTLVCons(t, c) => {
+      case a@BerTLVCons(t, c) => {
         t should be(BerTag("70"))
         a.length should be(30)
         c.length should be(3)
@@ -546,7 +574,7 @@ class TestTLV extends FlatSpec with Matchers {
     val publicKeyStr = "3081FF0281F900C1429F97688620FA3F6DA0E8C1669D4231B9AA3F86434E494F5D325CB2221E594378C19BF14EBB0F988295FCAE8BD516036E8F2A3C64CB2B95E467ED1EEFFEB99A1C2754ECED5A46CBDD96EF25345B5EF6C5558D9B384F292BB0E67607E7560F06C4367E4CD9CBCB72F40AD534139326EE62DC6D055B1C9D67979190A9618B88947174C046A0219D468F5B6ABC8A4CF92F56EA6897C4904947947156733AE5B6B79F3B4F9A71106638806CF37171E2F36BB684F7097541C8F38D51A61E4BE745653F23C647D3B6B9A95E02BD692EF34D6669D2431074BDF1E9B6D26104B76E7879F6E2E1CDD042312ADF8E25AC49739D6A4BBBA72A964E3B020103"
     val parser = new TLVParsers()
     val publicKeyValue = parser.parseTLV(publicKeyStr).get match {
-      case a@BerTLVCons(t,v) => v
+      case a@BerTLVCons(t, v) => v
       case _ => fail("should contain cons")
     }
     publicKeyValue.length should be(2)
@@ -562,7 +590,7 @@ class TestTLV extends FlatSpec with Matchers {
     val input = "4F07A0000000041010500A4D617374657243617264820278008701018C219F02069F03069F1A0295055F2A029A039C019F37049F35019F45029F4C089F34038D0C910A8A0295059F37049F4C088E1200000000000000004203440341035E031F039404080106015F25031002015F280206345F2D02656E5F3401029F0702FF009F080200029F0D05F8500400009F0E0500008800009F0F05F8700498009F1101019F120A4D6173746572436172649F1401009F2301009F420206349F4401029F450200009F49039F37049F4A0182C403405000C5030CF800C303000000CA06000000000000CB06000000000000C8020634C9020634D11906340000000634000000063400000006340000000634000000D5020C02D6020012DFFFFF08084F08878130ABEF48DFFFFF07742542313233343536303030303030303031375E53434D2054455354494E4720202020202020202020202020205E323031323230313137383739303030303030303030303433303030303030303F3B313233343536303030303030303031373D32303132323031313738373934333030303030303F"
     val parser = new TLVParsers()
     val r = parser.parseTLVList(input).get match {
-      case v : List[BerTLV] => v
+      case v: List[BerTLV] => v
       case _ => fail("Should result in a list of TLV: ")
     }
     r.length should be(38)
@@ -578,12 +606,12 @@ class TestTLV extends FlatSpec with Matchers {
     val input = "701EA5088002000080020000A5088002000080020000A5088002000080020000701EA5088002000080020000A5088002000080020000A5088002000080020000"
     val parser = new TLVParsers()
     val r = parser.parseTLVList(input).get match {
-      case v : List[BerTLV] => v
+      case v: List[BerTLV] => v
       case _ => fail("Should result in a list of TLV: ")
     }
     r.length should be(2)
-    r(0) should be (v2)
-    r(1) should be (v2)
+    r(0) should be(v2)
+    r(1) should be(v2)
   }
 
   it should "be able to parse a tlv list with TLVCons and Leafs" in {
@@ -594,21 +622,21 @@ class TestTLV extends FlatSpec with Matchers {
     val input = "701EA5088002000080020000A5088002000080020000A508800200008002000080020000701EA5088002000080020000A5088002000080020000A508800200008002000080020000"
     val parser = new TLVParsers()
     val r = parser.parseTLVList(input).get match {
-      case v : List[BerTLV] => v
+      case v: List[BerTLV] => v
       case _ => fail("Should result in a list of TLV: ")
     }
     r.length should be(4)
-    r(0) should be (v2)
-    r(1) should be (v0)
-    r(2) should be (v2)
-    r(3) should be (v0)
+    r(0) should be(v2)
+    r(1) should be(v0)
+    r(2) should be(v2)
+    r(3) should be(v0)
   }
 
   it should "be possible to pretty print TLV list" in {
     val input = "701EA5088002000080020000A5088002000080020000A508800200008002000080020000701EA5088002000080020000A5088002000080020000A508800200008002000080020000"
     val parser = new TLVParsers()
     val r = parser.parseTLVList(input).get
-    val sss =  r.map(_.pretty).mkString.filter((c: Char) => c != '\n' && c != ' ' && c != '\t')
+    val sss = r.map(_.pretty).mkString.filter((c: Char) => c != '\n' && c != ' ' && c != '\t')
     sss should be("70A5800000800000A5800000800000A580000080000080000070A5800000800000A5800000800000A5800000800000800000")
   }
 

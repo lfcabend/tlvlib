@@ -1,14 +1,15 @@
+package org.tlv
+
 import scala.annotation.tailrec
 import scala.collection.mutable.ListBuffer
 
 /**
- * Created by lau on 1-7-15.
- */
+  * Created by lau on 1-7-15.
+  */
 
 object TLV {
 
   import scala.language.implicitConversions
-  import scala.util.parsing.combinator._
 
   implicit def byteSequenceWrapper(s: String): Seq[Byte] = HexUtils.hex2Bytes(s)
 
@@ -82,6 +83,8 @@ object TLV {
 
     def select(expression: List[PathX]): Option[List[BerTLV]] = selectInternal(expression)._1
 
+    def ->(expression: PathX*) = select(expression.toList)
+
     def selectInternal(expression: List[PathX]): (Option[List[BerTLV]], List[PathX])
 
     def prettyWithDepth(depth: Int): String
@@ -96,7 +99,6 @@ object TLV {
       case BerTLVLeaf(t, v) => f(t, v)
       case BerTLVCons(t, l) => g(t, l.map(_.foldTLV(f, g)))
     }
-
 
     override def serializeTLV: Seq[Byte] = {
       val f: (BerTag, Seq[Byte]) => Seq[Byte] =
@@ -134,6 +136,10 @@ object TLV {
       }
     }
   }
+
+  implicit def strToPathEx(s: String) = new PathEx(new BerTag(s))
+
+  implicit def strAndIndexToPathEx(x: (String, Int)) = new PathExIndex(new BerTag(x._1), x._2)
 
   implicit def seqToTLVSeq(s: List[BerTLV]) = new TLVSeq(s)
 
@@ -246,7 +252,7 @@ object TLV {
           (r, nEx)
         }
       }
-      val cons: Option[List[BerTLV]] => Option[List[BerTLV]] = x1 =>  x1.map(x => List(BerTLVCons(tag, x)))
+      val cons: Option[List[BerTLV]] => Option[List[BerTLV]] = x1 => x1.map(x => List(BerTLVCons(tag, x)))
       val z0: (Option[List[BerTLV]], List[PathX]) = (None, expression.tail)
       val z1: (Option[List[BerTLV]], List[PathX]) = (None, expression)
       expression match {
@@ -308,8 +314,9 @@ object TLV {
 
   class TLVParsers extends BinaryParsers {
 
-    import scala.language.postfixOps
     import java.math.BigInteger
+
+    import scala.language.postfixOps
 
     def parseTLV(in: String) = parse(parseATLV, in)
 
@@ -340,8 +347,8 @@ object TLV {
 
     lazy val parseSingleLength = parseSingleByte.
       filter((x: Byte) => {
-      (x & 0xFF) <= 0x7F
-    }).withFailureMessage("Byte is more then 0x7F")
+        (x & 0xFF) <= 0x7F
+      }).withFailureMessage("Byte is more then 0x7F")
 
     lazy val parseMultipleLength = firstByteOfMultipleLength.into(parserNBytesOfLength)
 
@@ -349,8 +356,8 @@ object TLV {
 
     lazy val firstByteOfMultipleLength = parseSingleByte.
       filter((x: Byte) => {
-      (x & 0xFF) > 0x7F
-    }).map((x: Byte) => {
+        (x & 0xFF) > 0x7F
+      }).map((x: Byte) => {
       (x & 0xFF) & 0x7F
     }).
       withFailureMessage("Byte is not more then 0x7F")
