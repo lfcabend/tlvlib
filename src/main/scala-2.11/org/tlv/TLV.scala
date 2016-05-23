@@ -116,24 +116,17 @@ object TLV {
 
     def encodeLength(v: Seq[Byte]): Seq[Byte] = {
       val length = v.length
-      if (length <= 0x7F) {
+      if (length <= 0x7F)
         Array[Byte](length.toByte)
-      }
-      else if (length <= 0xFF) {
+      else if (length <= 0xFF)
         Array[Byte](0x81.toByte, length.toByte)
-      }
-      else if (length <= 0xFFFF) {
+      else if (length <= 0xFFFF)
         Array[Byte](0x82.toByte, ((length >> 8) & 0xFF).toByte, (length & 0xFF).toByte)
-      }
-      else if (length <= 0xFFFFFF) {
+      else if (length <= 0xFFFFFF)
         Array[Byte](0x83.toByte, ((length >> 16) & 0xFF).toByte, ((length >> 8) & 0xFF).toByte, (length & 0xFF).toByte)
-      }
-      else if (length <= 0x7FFFFFFF) {
+      else //if (length <= 0x7FFFFFFF) {
         Array[Byte](0x84.toByte, ((length >> 24) & 0xFF).toByte,
           ((length >> 16) & 0xFF).toByte, ((length >> 8) & 0xFF).toByte, (length & 0xFF).toByte)
-      } else {
-        throw new IllegalArgumentException(s"Length not supported: $length")
-      }
     }
   }
 
@@ -168,7 +161,7 @@ object TLV {
 
   }
 
-  sealed case class BerTLVLeaf(tag: BerTag, value: Seq[Byte]) extends BerTLV {
+  case class BerTLVLeaf(tag: BerTag, value: Seq[Byte]) extends BerTLV {
 
     require(tag != null, "tag is null")
     require(value != null, "value is null")
@@ -212,7 +205,7 @@ object TLV {
 
   }
 
-  sealed case class BerTLVCons(tag: BerTag, constructedValue: List[BerTLV]) extends BerTLV {
+  case class BerTLVCons(tag: BerTag, constructedValue: List[BerTLV]) extends BerTLV {
     require(tag != null, "tag is null")
     require(tag.isConstructed, "need a constructed tag")
     require(constructedValue != null, "value is null or empty")
@@ -329,7 +322,7 @@ object TLV {
     lazy val parseATLV: Parser[BerTLV] = parseAMultipleTLV | parseASingleTLV
 
     lazy val parseAMultipleTLV: Parser[BerTLVCons] = parseAConstructedTag ~
-      parseALength.into(x => repParsingTLVForXByte(x)) ^^ { case t ~ c => BerTLVCons(t, c) }
+      parseALength.flatMap(x => repParsingTLVForXByte(x)) ^^ { case t ~ c => BerTLVCons(t, c) }
 
     lazy val parseASingleTLV: Parser[BerTLVLeaf] = parseNonConstructedATag ~ parseALength.
       into(x => repN(x, parseSingleByte)) ^^ {
