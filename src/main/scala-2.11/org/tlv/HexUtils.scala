@@ -11,4 +11,6 @@ object HexUtils {
       .map(Integer.parseInt(_, 16).toByte).toArray
   }
 
+  def toHex(b: Seq[Byte]): String = b.map("%02X" format _).mkString
+
 }

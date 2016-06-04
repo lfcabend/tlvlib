@@ -3,6 +3,7 @@ package org.tlv
 import scala.util.parsing.combinator.Parsers
 import java.lang.Double.longBitsToDouble
 import java.lang.Float.intBitsToFloat
+import scala.language.implicitConversions
 
 /**
   * Created by Lau on 4/24/2016.
