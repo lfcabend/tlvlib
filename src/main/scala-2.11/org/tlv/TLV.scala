@@ -1,7 +1,10 @@
 package org.tlv
 
+import scodec.bits.ByteVector
+
 import scala.annotation.tailrec
 import scala.collection.mutable.ListBuffer
+import scala.language.implicitConversions
 
 /**
   * Created by lau on 1-7-15.
@@ -9,17 +12,13 @@ import scala.collection.mutable.ListBuffer
 
 object TLV {
 
-  import scala.language.implicitConversions
-
-  implicit def byteSequenceWrapper(s: String): Seq[Byte] = HexUtils.hex2Bytes(s)
-
   trait Tag {
 
-    val value: Seq[Byte]
+    val value: ByteVector
 
-    lazy val length: Int = value.length
+    lazy val length: Int = value.length.toInt
 
-    override def toString() = value.map("%02X" format _).mkString
+    override def toString() = value.toHex
 
   }
 
@@ -27,21 +26,21 @@ object TLV {
 
     val tag: T0
 
-    val value: Seq[Byte]
+    val value: ByteVector
 
-    lazy val length: Int = value.length
+    lazy val length: Int = value.length.toInt
 
-    def serializeTLV: Seq[Byte]
+    def serializeTLV: ByteVector
 
     def pretty: String
 
   }
 
-  case class BerTag(val value: Seq[Byte]) extends Tag {
+  case class BerTag(val value: ByteVector) extends Tag {
     require(Option(value).map(!_.isEmpty) == Option(true), "value is null or empty")
 
     private val hasNextByte: Seq[Boolean] =
-      value.zipWithIndex.map { case (x, index) => shouldHaveNextByte(x, index) }
+      value.toArray.zipWithIndex.map { case (x, index) => shouldHaveNextByte(x, index) }
 
     require(hasNextByte.reduceRight(_ && _), "Invalid length indicators")
 
@@ -92,6 +91,17 @@ object TLV {
 
     def select(expression: List[PathX]): Option[List[BerTLV]] = selectInternal(expression)._1
 
+    def selectLast(expression: List[PathX]): Option[List[BerTLV]] = selectLastInternal(expression, select(expression))
+
+    def selectLastInternal(expression: List[PathX], r: Option[List[BerTLV]]): Option[List[BerTLV]] =
+      r.map(_.flatMap(l => {
+        (l, expression) match {
+          case (v, (x :: Nil)) if v.tag == x.tag => List(v)
+          case (v: BerTLVConsT, (x :: xs)) => v.constructedValue.flatMap(l => l.selectLastInternal(xs, Some(List(l))).getOrElse(Nil))
+          case _ => Nil
+        }
+      }))
+
     def ->(expression: PathX*) = select(expression.toList)
 
     def selectInternal(expression: List[PathX]): (Option[List[BerTLV]], List[PathX])
@@ -104,13 +114,13 @@ object TLV {
 
     def updatedInternal(expression: List[PathX], tlv: BerTLV): (BerTLV, List[PathX])
 
-    def foldTLV[B](f: (BerTag, Seq[Byte]) => B, g: (BerTag, Seq[B]) => B): B
+    def foldTLV[B](f: (BerTag, ByteVector) => B, g: (BerTag, Seq[B]) => B): B
 
-    override def serializeTLV: Seq[Byte] = {
-      val f: (BerTag, Seq[Byte]) => Seq[Byte] =
+    override def serializeTLV: ByteVector = {
+      val f: (BerTag, ByteVector) => ByteVector =
         (t, v) => t.value ++ BerTLV.encodeLength(v) ++ v
-      val g: (BerTag, Seq[Seq[Byte]]) => Seq[Byte] = (t, v) => {
-        val cat: Seq[Byte] = v.flatten
+      val g: (BerTag, Seq[ByteVector]) => ByteVector = (t, v) => {
+        val cat: ByteVector = v.foldRight(ByteVector.empty)(_ ++ _)
         t.value ++ BerTLV.encodeLength(cat) ++ cat
       }
       foldTLV(f, g)
@@ -120,31 +130,33 @@ object TLV {
 
   object BerTLV {
 
-    def encodeLengthOld(v: Seq[Byte]): Seq[Byte] = {
-      val length = v.length
-      if (length <= 0x7F)
-        Array[Byte](length.toByte)
-      else if (length <= 0xFF)
-        Array[Byte](0x81.toByte, length.toByte)
-      else if (length <= 0xFFFF)
-        Array[Byte](0x82.toByte, ((length >> 8) & 0xFF).toByte, (length & 0xFF).toByte)
-      else if (length <= 0xFFFFFF)
-        Array[Byte](0x83.toByte, ((length >> 16) & 0xFF).toByte, ((length >> 8) & 0xFF).toByte, (length & 0xFF).toByte)
-      else //if (length <= 0x7FFFFFFF) {
-        Array[Byte](0x84.toByte, ((length >> 24) & 0xFF).toByte,
-          ((length >> 16) & 0xFF).toByte, ((length >> 8) & 0xFF).toByte, (length & 0xFF).toByte)
-    }
+    //    def encodeLengthOld(v: ByteVector): ByteVector = {
+    //      val length = v.length
+    //      if (length <= 0x7F)
+    //        ByteVector(length.toByte)
+    //      else if (length <= 0xFF)
+    //        ByteVector(0x81, length)
+    //      else if (length <= 0xFFFF)
+    //        ByteVector(0x82.toByte, ((length >> 8) & 0xFF).toByte, (length & 0xFF).toByte)
+    //      else if (length <= 0xFFFFFF)
+    //        ByteVector(0x83.toByte, ((length >> 16) & 0xFF).toByte, ((length >> 8) & 0xFF).toByte, (length & 0xFF).toByte)
+    //      else //if (length <= 0x7FFFFFFF) {
+    //        ByteVector(0x84.toByte, ((length >> 24) & 0xFF).toByte,
+    //          ((length >> 16) & 0xFF).toByte, ((length >> 8) & 0xFF).toByte, (length & 0xFF).toByte)
+    //    }
 
-    def encodeLength(v: Seq[Byte]): Seq[Byte] = {
-      val length = v.length
+    def encodeLength(v: ByteVector): ByteVector = {
+      val length = v.length.toInt
       encodeLength(length)
     }
 
-    def encodeLength(length: Int): Seq[Byte] = {
-      lazy val theRest: Int => List[Byte] = x =>
-        if (x == 0) List(length.toByte)
-        else ((length >> (x * 8)) & 0xFF).toByte :: theRest(x - 1)
-      val lengthEncoded: Int => List[Byte] = x => if (x > 0) ((0x80 | x).toByte) :: theRest(x - 1) else theRest(x)
+    def encodeLength(length: Int): ByteVector = {
+      lazy val theRest: Int => ByteVector = x =>
+        if (x == 0) ByteVector(length.toByte)
+        else ByteVector((length >> (x * 8)) & 0xFF) ++ theRest(x - 1)
+      val lengthEncoded: Int => ByteVector = x =>
+        if (x > 0) ByteVector((0x80 | x).toByte) ++ theRest(x - 1)
+        else theRest(x)
 
       //TODO change with log that might be expensive
       if (length <= 0x7F)
@@ -160,9 +172,9 @@ object TLV {
     }
   }
 
-  implicit def strToPathEx(s: String) = new PathEx(new BerTag(s))
+  implicit def byteVectorToPathEx(s: ByteVector) = new PathEx(new BerTag(s))
 
-  implicit def strAndIndexToPathEx(x: (String, Int)) = new PathExIndex(new BerTag(x._1), x._2)
+  implicit def ByteVectorAndIndexToPathEx(x: (ByteVector, Int)) = new PathExIndex(new BerTag(x._1), x._2)
 
   implicit def seqToTLVSeq(s: List[BerTLV]) = new TLVSeq(s)
 
@@ -172,15 +184,15 @@ object TLV {
 
   }
 
-  implicit def stringToTLVValue(s: String) = new TLVValue(s)
+  implicit def byteVectorToTLVValue(s: ByteVector) = new TLVValue(s)
 
-  class TLVValue(s: String) {
+  class TLVValue(s: ByteVector) {
 
-    def >>:(tag: BerTag) = BerTLVLeaf(tag, HexUtils.hex2Bytes(s))
+    def >>:(tag: BerTag) = BerTLVLeaf(tag, s)
 
   }
 
-  implicit def stringToBerTag(s: String) = BerTag(HexUtils.hex2Bytes(s))
+  implicit def byteVectorToBerTag(s: ByteVector) = BerTag(s)
 
 
   implicit def tlvToTLVCons(tlv: BerTLV) = new TLVCons(tlv)
@@ -191,7 +203,28 @@ object TLV {
 
   }
 
-  case class BerTLVLeaf(val tag: BerTag, val value: Seq[Byte]) extends BerTLVLeafT
+
+  implicit def getTag(tlv: List[BerTLV]) = new GetFromTLVList(tlv)
+
+  class GetFromTLVList(tlv: List[BerTLV]) {
+
+    def getTag(tag: BerTag): Option[BerTLV] = tlv.foldRight[Option[BerTLV]](None)({
+      case (a, Some(x)) => Some(x)
+      case (a, None) if (a.tag == tag) => Some(a)
+      case _ => None
+    })
+
+  }
+
+  implicit def toTlvMap(tlv: List[BerTLV]) = new TLVListToMap(tlv)
+
+  class TLVListToMap(tlv: List[BerTLV]) {
+
+    def toTlvMap(): Map[BerTag, BerTLV] = tlv.foldRight[Map[BerTag, BerTLV]](Map())((x, y) => y + (x.tag -> x))
+
+  }
+
+  case class BerTLVLeaf(val tag: BerTag, val value: ByteVector) extends BerTLVLeafT
 
   trait BerTLVLeafT extends BerTLV {
 
@@ -207,11 +240,11 @@ object TLV {
 
     override def foreach[U](f: BerTLV => U): Unit = f(this)
 
-    def foldTLV[B](f: (BerTag, Seq[Byte]) => B, g: (BerTag, Seq[B]) => B): B = f(tag, value)
+    def foldTLV[B](f: (BerTag, ByteVector) => B, g: (BerTag, Seq[B]) => B): B = f(tag, value)
 
 
     override def pretty: String =
-      tag.toString() + " " + value.map("%02X" format _).mkString + "\n"
+      tag.toString() + " " + value.toHex + "\n"
 
     def prettyWithDepth(depth: Int): String =
       "\t" * depth + pretty
@@ -240,7 +273,12 @@ object TLV {
 
   }
 
-  case class BerTLVCons(val tag: BerTag, val constructedValue: List[BerTLV]) extends BerTLVConsT
+  case class BerTLVCons(val tag: BerTag, val constructedValue: List[BerTLV]) extends BerTLVConsT {
+
+    override def copyByConstructedValue(newConstructedValue: List[BerTLV]): BerTLVConsT =
+      BerTLVCons(tag, newConstructedValue)
+
+  }
 
   trait BerTLVConsT extends BerTLV {
     //    require(tag != null, "tag is null")
@@ -251,6 +289,8 @@ object TLV {
 
     override def toString() = s"BerTLVCons($tag, $constructedValue)"
 
+    def copyByConstructedValue(newConstructedValue: List[BerTLV]): BerTLVConsT
+
     def foreach[U](f: BerTLV => U): Unit = {
       f(this)
       constructedValue.foreach({ x =>
@@ -258,13 +298,13 @@ object TLV {
       })
     }
 
-    def foldTLV[B](f: (BerTag, Seq[Byte]) => B, g: (BerTag, Seq[B]) => B): B = g(tag, constructedValue.map(_.foldTLV(f, g)))
+    def foldTLV[B](f: (BerTag, ByteVector) => B, g: (BerTag, Seq[B]) => B): B = g(tag, constructedValue.map(_.foldTLV(f, g)))
 
     def updated(tlv: BerTLV): BerTLV =
       if (tlv.tag == tag) tlv
       else BerTLVCons(tag, constructedValue.map(_.updated(tlv)))
 
-    override val value: Seq[Byte] = constructedValue.flatMap(x => x.serializeTLV)
+    override val value: ByteVector = constructedValue.foldRight(ByteVector.empty)((x, y) => x.serializeTLV ++ y)
 
     override def pretty: String = prettyWithDepth(0)
 
@@ -285,7 +325,7 @@ object TLV {
           (r, nEx)
         }
       }
-      val cons: Option[List[BerTLV]] => Option[List[BerTLV]] = x1 => x1.map(x => List(BerTLVCons(tag, x)))
+      val cons: Option[List[BerTLV]] => Option[List[BerTLV]] = x1 => x1.map(x => List(this.copyByConstructedValue(x)))
       val z0: (Option[List[BerTLV]], List[PathX]) = (None, expression.tail)
       val z1: (Option[List[BerTLV]], List[PathX]) = (None, expression)
       expression match {
@@ -345,139 +385,112 @@ object TLV {
 
   }
 
-  trait TLVParsers extends BinaryParsers {
+  object Parser {
 
-    import java.math.BigInteger
+    import fastparse.byte.all._
 
-    import scala.language.postfixOps
+    import fastparse.byte.all.Parser
 
-    def parseTLV(in: String) = parse(parseATLV, in)
+    def parseSingleByteTag = P(AnyByte.!.map((x: Bytes) => BerTag(x)))
 
-    def parseTLVList(in: String) = parse(parseATLV +, in)
+    def parseFirstByteOfTagWithMore = P(AnyByte.!.filter(x => BerTag.hasNextByte(x.toByte(), 0))).
+      opaque("Byte did not indicate more bytes")
 
-    def parseTLV(in: Seq[Byte]) = parse(parseATLV, in)
+    def parseTwoByteTag = P(
+      for (
+        x1 <- parseFirstByteOfTagWithMore;
+        x2 <- AnyByte.!
+      ) yield {
+        BerTag(x1 ++ x2)
+      })
 
-    def parseTLVList(in: Seq[Byte]) = parse(parseATLV +, in)
+    def parseTag: Parser[BerTag] = P(parseMoreByteTag | parseTwoByteTag | parseSingleByteTag)
 
-    def parseATLV: Parser[BerTLV] = parseAMultipleTLV | parseASingleTLV
+    def parseMoreByteTag = P(for (
+      x1 <- parseFirstByteOfTagWithMore;
+      x2 <- parseSubsequentByteOfTagWithMore.rep.!;
+      x3 <- AnyByte.!
+    ) yield {
+      BerTag(x1 ++ x2 ++ x3)
+    })
 
-    def parseAMultipleTLV: Parser[BerTLVCons] = parseAConstructedTag ~
-      parseALength.flatMap(x => repParsingTLVForXByte(x)) ^^ { case t ~ c => BerTLVCons(t, c) }
+    def parseSubsequentByteOfTagWithMore = P(AnyByte.!.filter(x => BerTag.hasNextByte(x.toByte(), 1)))
 
-    def parseASingleTLV: Parser[BerTLVLeaf] = parseNonConstructedATag ~ parseALength.
-      into(x => repN(x, parseSingleByte)) ^^ {
-      case t ~ v => BerTLVLeaf(t, v)
-    }
+    def parseSingleLength = P(AnyByte.!.filter(x => (x.toByte() & 0xFF) <= 0x7F).map(_.toInt()))
 
-    def parseLeafTag(tag: BerTag): Parser[BerTag] =
-      parseNonConstructedATag.
-        withFilter(_ == tag).
-        withFailureMessage(s"Tag is not ${tag}")
+    def parseMultipleLength = P(for (
+      x <- firstByteOfMultipleLength;
+      y <- parserNBytesOfLength(x)
+    ) yield {
+      BigInt(1, y.toArray).intValue()
+    })
 
-    def parseConsTag(tag: BerTag): Parser[BerTag] =
-      parseAConstructedTag.
-        withFilter(_ == tag).
-        withFailureMessage(s"Tag is not ${tag}")
+    def parserNBytesOfLength = (x: Int) => P(AnyByte.!.rep(exactly = x).!)
 
-    def parseVarLength(upto: Int): Parser[Int] =
-      parseALength.withFilter(_ <= upto).withFailureMessage(s"Maximum length is ${upto}")
+    def firstByteOfMultipleLength = P(AnyByte.!.filter(x => {
+      (x.toByte() & 0xFF) > 0x7F
+    }).map(x => {
+      (x.toByte() & 0xFF) & 0x7F
+    }))
 
-    def parseLength(length: Int): Parser[Int] =
-      parseALength.withFilter(_ == length).withFailureMessage(s"length should be ${length}")
+    def parseLength = P(parseSingleLength | parseMultipleLength)
 
-    def parseVarLengthBetween(min: Int, max: Int): Parser[Int] =
-      parseALength.withFilter((x: Int) => x >= min && x <= max).
-        withFailureMessage(s"length should be between min ${min} and max ${max}")
+    def parseNonConstructedATag: Parser[BerTag] = P(parseTag.filter(!_.isConstructed)).opaque("is not a non constructed tag")
 
-    def parseNonConstructedATag: Parser[BerTag] = parseATag.withFilter(!_.isConstructed).
-      withFailureMessage("tag is not a non-constructed tag")
+    def parseAConstructedTag: Parser[BerTag] = P(parseTag.filter(_.isConstructed)).opaque("Is not a constructed tag")
 
-    def parseAConstructedTag: Parser[BerTag] = parseATag.withFilter(_.isConstructed).
-      withFailureMessage("tag is not a constructed tag")
+    def parseTLV: Parser[BerTLV] = P(parseTLVCons | parseTLVLeaf)
 
-    def parseALength: Parser[Int] = (parseSingleLength ^^ (_.toInt)) |
-      (parseMultipleLength ^^ (x => {
-        BigInt(1, x.toArray).intValue()
-      }))
+    def parseTLVList = P(parseTLV.rep)
 
-    def parseSingleLength = parseSingleByte.
-      filter((x: Byte) => {
-        (x & 0xFF) <= 0x7F
-      }).withFailureMessage("Byte is more then 0x7F")
+    def parseTLVLeaf = P(for (
+      x1 <- parseNonConstructedATag;
+      x2 <- parseLength;
+      x3 <- AnyByte.!.rep(exactly = x2).!
+    ) yield {
+      BerTLVLeaf(x1, x3)
+    })
 
-    def parseMultipleLength = firstByteOfMultipleLength.into(parserNBytesOfLength)
+    def parseTLVCons = P(for (
+      x1 <- parseAConstructedTag;
+      x2 <- parseLength;
+      x3 <- repParsingForXByte(x2)
+    ) yield {
+      BerTLVCons(x1, x3)
+    })
 
-    def parserNBytesOfLength: (Int => Parser[List[Byte]]) = (x => repN(x, parseSingleByte))
+    def repParsingForXByte(totalSize: Int) = new RepParserForXBytes(totalSize)
 
-    def firstByteOfMultipleLength = parseSingleByte.
-      filter((x: Byte) => {
-        (x & 0xFF) > 0x7F
-      }).map((x: Byte) => {
-      (x & 0xFF) & 0x7F
-    }).
-      withFailureMessage("Byte is not more then 0x7F")
+    case class RepParserForXBytes(totalSize: Int) extends Parser[List[BerTLV]] {
 
+      import fastparse.core._
 
-    def parseATag: Parser[BerTag] = parseMoreByteTag | parseTwoByteTag | parseSingleByteTag
-
-    def parseMoreByteTag = parseFirstByteOfTagWithMore ~ (parseSubsequentByteOfTagWithMore *) ~ parseSingleByte ^^ {
-      case f ~ s ~ l => BerTag(f :: s ++ List(l))
-    }
-
-    def parseTwoByteTag = parseFirstByteOfTagWithMore ~ parseSingleByte ^^ { case f ~ l => BerTag(f :: List(l)) }
-
-    def parseSingleByteTag = parseSingleByte ^^ { case l => BerTag(List(l)) }
-
-    def parseFirstByteOfTagWithMore = parseSingleByte.
-      filter(BerTag.hasNextByte(_, 0)).withFailureMessage("Byte does not indicate more bytes")
-
-    def parseSubsequentByteOfTagWithMore: Parser[Byte] = parseSingleByte.
-      filter(BerTag.hasNextByte(_, 1)).withFailureMessage("Byte does not indicate more bytes")
-
-
-    def parseSingleByte: Parser[Byte] = new Parser[Byte] {
-      def apply(in: Input): ParseResult[Byte] = {
-        if (!in.atEnd) Success(in.first, in.rest)
-        else Failure("End of stream", in)
-      }
-    }
-
-    def parseTlvForXBytes(totalSize: Int): Parser[BerTLV] =
-      parseASingleTLVForXBytes(totalSize) | parseAMultipleTLVForXBytes(totalSize)
-
-    def parseAMultipleTLVForXBytes(totalSize: Int): Parser[BerTLVCons] = parseAConstructedTag ~
-      parseALength.into(x => repParsingTLVForXByte(totalSize - x)) ^^ { case t ~ c => BerTLVCons(t, c) }
-
-    def parseASingleTLVForXBytes(totalSize: Int): Parser[BerTLVLeaf] = parseASingleTLV
-
-    def repParsingTLVForXByte(totalSize: Int): Parser[List[BerTLV]] = repParsingForXByte(totalSize, parseATLV)
-
-    def repParsingForXByte[A](totalSize: Int, parser: Parser[A]): Parser[List[A]] = Parser { in =>
-      val elems = new ListBuffer[A]
-      def continue(in: Input, size: Int): ParseResult[List[A]] = {
-        @tailrec def applyP(in0: Input, size: Int): ParseResult[List[A]] = {
-          parser(in0) match {
-            case Success(x, rest) if (consumed(in0, rest) < size) => {
-              elems += x
-              applyP(rest, size - consumed(in, rest))
+      def parseRec(cfg: ParseCtx[Byte, ByteVector], index0: Int): Mutable[List[BerTLV], Byte, ByteVector] = {
+        val elems = new ListBuffer[BerTLV]
+        def continue(cfg: ParseCtx[Byte, ByteVector], index: Int, size: Int) = {
+          @tailrec def applyP(cfg: ParseCtx[Byte, ByteVector], index: Int, size: Int): Mutable[List[BerTLV], Byte, ByteVector] = {
+            parseTLV.parseRec(cfg, index) match {
+              case Mutable.Success(r, i, t, c) if i - index0 < size => {
+                elems += r;
+                applyP(cfg, i, size)
+              }
+              case Mutable.Success(r, i, t, c) => {
+                elems += r
+                success(cfg.success, elems.toList, i, Set.empty, false)
+              }
+              case s: Mutable.Failure[Byte, ByteVector] => s
             }
-            case e@Error(_, _) => e // still have to propagate error
-            case f@Failure(_, _) => f
-            case Success(x, rest) => elems += x; Success(elems.toList, rest)
           }
+          applyP(cfg, index, size)
         }
-
-        applyP(in, size)
+        if (totalSize <= 0) {
+          success(cfg.success, elems.toList, index0, Set.empty, false)
+        } else {
+          continue(cfg, index0, totalSize)
+        }
       }
 
-      if (totalSize <= 0) {
-        Success(Nil, in)
-      } else {
-        continue(in, totalSize)
-      }
     }
-
-    private def consumed(in0: Input, in1: Input): Int = in1.offset - in0.offset
 
   }
 
