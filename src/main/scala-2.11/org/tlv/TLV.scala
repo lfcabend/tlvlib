@@ -3,7 +3,6 @@ package org.tlv
 import scodec.bits.ByteVector
 
 import scala.annotation.tailrec
-import scala.collection.immutable.Stream.cons
 import scala.collection.mutable.ListBuffer
 import scala.language.implicitConversions
 
@@ -19,7 +18,7 @@ object TLV {
 
     lazy val length: Int = value.length.toInt
 
-    override def toString() = value.toHex
+    override def toString = value.toHex
 
   }
 
@@ -37,7 +36,7 @@ object TLV {
 
   }
 
-  case class BerTag(val value: ByteVector) extends Tag {
+  case class BerTag(value: ByteVector) extends Tag {
     require(Option(value).map(!_.isEmpty) == Option(true), "value is null or empty")
 
     private val hasNextByte: Seq[Boolean] =
@@ -46,19 +45,19 @@ object TLV {
     require(hasNextByte.reduceRight(_ && _), "Invalid length indicators")
 
     def isConstructed: Boolean =
-      value.lift(0).map(x => (x & 0x20) == 0x20).getOrElse(false)
+      value.lift(0).exists(x => (x & 0x20) == 0x20)
 
     def isUniversalClass: Boolean =
-      value.lift(0).map(x => (~x & 0xC0) == 0xC0).getOrElse(false)
+      value.lift(0).exists(x => (~x & 0xC0) == 0xC0)
 
     def isApplicationClass: Boolean =
-      value.lift(0).map(x => (x & 0x40) == 0x40).getOrElse(false)
+      value.lift(0).exists(x => (x & 0x40) == 0x40)
 
     def isContextSpecifClass: Boolean =
-      value.lift(0).map(x => (x & 0x80) == 0x80).getOrElse(false)
+      value.lift(0).exists(x => (x & 0x80) == 0x80)
 
     def isPrivateClass: Boolean =
-      value.lift(0).map(x => (x & 0xC0) == 0xC0).getOrElse(false)
+      value.lift(0).exists(x => (x & 0xC0) == 0xC0)
 
     private def shouldHaveNextByte(x: Byte, index: Int) = {
       val size = value.length
@@ -131,21 +130,6 @@ object TLV {
 
   object BerTLV {
 
-    //    def encodeLengthOld(v: ByteVector): ByteVector = {
-    //      val length = v.length
-    //      if (length <= 0x7F)
-    //        ByteVector(length.toByte)
-    //      else if (length <= 0xFF)
-    //        ByteVector(0x81, length)
-    //      else if (length <= 0xFFFF)
-    //        ByteVector(0x82.toByte, ((length >> 8) & 0xFF).toByte, (length & 0xFF).toByte)
-    //      else if (length <= 0xFFFFFF)
-    //        ByteVector(0x83.toByte, ((length >> 16) & 0xFF).toByte, ((length >> 8) & 0xFF).toByte, (length & 0xFF).toByte)
-    //      else //if (length <= 0x7FFFFFFF) {
-    //        ByteVector(0x84.toByte, ((length >> 24) & 0xFF).toByte,
-    //          ((length >> 16) & 0xFF).toByte, ((length >> 8) & 0xFF).toByte, (length & 0xFF).toByte)
-    //    }
-
     def encodeLength(v: ByteVector): ByteVector = {
       val length = v.length.toInt
       encodeLength(length)
@@ -173,11 +157,11 @@ object TLV {
     }
   }
 
-  implicit def byteVectorToPathEx(s: ByteVector) = new PathEx(new BerTag(s))
+  implicit def byteVectorToPathEx(s: ByteVector): PathEx = new PathEx(new BerTag(s))
 
-  implicit def ByteVectorAndIndexToPathEx(x: (ByteVector, Int)) = new PathExIndex(new BerTag(x._1), x._2)
+  implicit def ByteVectorAndIndexToPathEx(x: (ByteVector, Int)): PathExIndex = new PathExIndex(new BerTag(x._1), x._2)
 
-  implicit def seqToTLVSeq(s: List[BerTLV]) = new TLVSeq(s)
+  implicit def seqToTLVSeq(s: List[BerTLV]): TLVSeq = new TLVSeq(s)
 
   class TLVSeq(s: List[BerTLV]) {
 
@@ -185,7 +169,7 @@ object TLV {
 
   }
 
-  implicit def byteVectorToTLVValue(s: ByteVector) = new TLVValue(s)
+  implicit def byteVectorToTLVValue(s: ByteVector): TLVValue = new TLVValue(s)
 
   class TLVValue(s: ByteVector) {
 
@@ -193,10 +177,10 @@ object TLV {
 
   }
 
-  implicit def byteVectorToBerTag(s: ByteVector) = BerTag(s)
+  implicit def byteVectorToBerTag(s: ByteVector): BerTag = BerTag(s)
 
 
-  implicit def tlvToTLVCons(tlv: BerTLV) = new TLVCons(tlv)
+  implicit def tlvToTLVCons(tlv: BerTLV): TLVCons = new TLVCons(tlv)
 
   class TLVCons(tlv: BerTLV) {
 
@@ -205,27 +189,27 @@ object TLV {
   }
 
 
-  implicit def getTag(tlv: List[BerTLV]) = new GetFromTLVList(tlv)
+  implicit def getTag(tlv: List[BerTLV]): GetFromTLVList = new GetFromTLVList(tlv)
 
   class GetFromTLVList(tlv: List[BerTLV]) {
 
     def getTag(tag: BerTag): Option[BerTLV] = tlv.foldRight[Option[BerTLV]](None)({
       case (a, Some(x)) => Some(x)
-      case (a, None) if (a.tag == tag) => Some(a)
+      case (a, None) if a.tag == tag => Some(a)
       case _ => None
     })
 
   }
 
-  implicit def toTlvMap(tlv: List[BerTLV]) = new TLVListToMap(tlv)
+  implicit def toTlvMap(tlv: List[BerTLV]): TLVListToMap = new TLVListToMap(tlv)
 
   class TLVListToMap(tlv: List[BerTLV]) {
 
-    def toTlvMap(): Map[BerTag, BerTLV] = tlv.foldRight[Map[BerTag, BerTLV]](Map())((x, y) => y + (x.tag -> x))
+    def toTlvMap = tlv.foldRight[Map[BerTag, BerTLV]](Map())((x, y) => y + (x.tag -> x))
 
   }
 
-  case class BerTLVLeaf(val tag: BerTag, val value: ByteVector) extends BerTLVLeafT
+  case class BerTLVLeaf(tag: BerTag, value: ByteVector) extends BerTLVLeafT
 
   trait BerTLVLeafT extends BerTLV {
 
@@ -274,7 +258,7 @@ object TLV {
 
   }
 
-  case class BerTLVCons(val tag: BerTag, val constructedValue: List[BerTLV]) extends BerTLVConsT {
+  case class BerTLVCons(tag: BerTag, constructedValue: List[BerTLV]) extends BerTLVConsT {
 
     override def copyByConstructedValue(newConstructedValue: List[BerTLV]): BerTLVConsT =
       BerTLVCons(tag, newConstructedValue)
@@ -315,7 +299,7 @@ object TLV {
 
     override def selectInternal(expression: List[PathX]): (Option[List[BerTLV]], List[PathX]) = {
       //combine the two optional lists
-      def combine(v1: Option[List[BerTLV]], v2: Option[List[BerTLV]]) = (v1, v2) match {
+      def combine(param1: Option[List[BerTLV]], param2: Option[List[BerTLV]]) = (param1, param2) match {
         case (Some(v1), Some(v2)) => Some(v1 ++ v2)
         case (None, Some(v2)) => Some(v2)
         case (Some(v1), None) => Some(v1)
@@ -329,13 +313,15 @@ object TLV {
       }
       //when match
       val cons: Option[List[BerTLV]] => Option[List[BerTLV]] =
-        x1 => x1.map(x => List(this.copyByConstructedValue(x)))
+        x1 => x1.map(x => List(self.copyByConstructedValue(x)))
       //base cases when no match
       matchAllPathCases(new PathHandler[(Option[List[BerTLV]], List[PathX])](expression) {
 
-        val z0: (Option[List[BerTLV]], List[PathX]) = (None, expression.tail)
+        type SRT = (Option[List[BerTLV]], List[PathX])
 
-        val z1: (Option[List[BerTLV]], List[PathX]) = (None, expression)
+        val z0 = (None, expression.tail)
+
+        val z1 = (None, expression)
 
         override def caseLeafPathNoIndex(x: PathEx) =
           (Some(List(self)), x :: Nil)
@@ -347,12 +333,12 @@ object TLV {
           (None, List(PathExIndex(x.tag, x.index - 1))) //maybe we should continue recursively since it can still occur
 
         override def caseConsMatchingTag(x: PathEx, xs: List[PathX]): (Option[List[BerTLV]], List[PathX]) = {
-          val r = constructedValue.foldLeft(z0)((p1, p2) => foldFunc(p2, p1))
+          val r = constructedValue.foldLeft[SRT](z0)((p1, p2) => foldFunc(p2, p1))
           (cons(r._1), x :: r._2)
         }
 
         override def caseConsMatchingTagLastIndex(x: PathExIndex, xs: List[PathX]) = {
-          val r = constructedValue.foldLeft(z0)((p1, p2) => foldFunc(p2, p1))
+          val r = constructedValue.foldLeft[SRT](z0)((p1, p2) => foldFunc(p2, p1))
           (cons(r._1), PathExIndex(x.tag, x.index - 1) :: r._2)
         }
 
@@ -361,15 +347,14 @@ object TLV {
         }
 
         override def caseNoMatchingTag(x: PathX, xs: List[PathX]) =
-          constructedValue.foldLeft(z1)((p1, p2) => foldFunc(p2, p1))
+          constructedValue.foldLeft[SRT](z1)((p1, p2) => foldFunc(p2, p1))
 
-        override def defaultCase(): (Option[List[BerTLV]], List[PathX]) = (None, expression)
+        override def defaultCase() = (None, expression)
       })
 
     }
 
     private abstract class PathHandler[R0](val expression: List[PathX]) {
-
 
       def caseNoMatchingTag(x: PathX, xs: List[PathX]): R0
 
@@ -409,16 +394,19 @@ object TLV {
     }
 
     override def updatedInternal(expression: List[PathX], tlv: BerTLV): (BerTLV, List[PathX]) = {
-      def foldFunc(tlv: BerTLV, currentResult: (List[BerTLV], List[PathX])): (List[BerTLV], List[PathX]) = {
+      def foldFunc(tlv: BerTLV, currentResult: (List[BerTLV], List[PathX])) = {
         val (cTLV, _) = currentResult
         val (nTLV, nEx) = tlv.updatedInternal(currentResult._2, tlv)
         (cTLV ++ nTLV, nEx)
       }
 
+
       matchAllPathCases(new PathHandler[(BerTLV, List[PathX])](expression) {
 
-        val z0: (List[BerTLV], List[PathX]) = (Nil, expression.tail)
-        val z1: (List[BerTLV], List[PathX]) = (Nil, expression)
+        type URT = (List[BerTLV], List[PathX])
+
+        val z0 = (Nil, expression.tail)
+        val z1 = (Nil, expression)
 
         override def caseLeafPathNoIndex(x: PathEx) =
           (tlv, x :: Nil)
@@ -430,13 +418,13 @@ object TLV {
           (self, List(PathExIndex(x.tag, x.index - 1))) //maybe we should continue recursively since it can still occur
 
         override def caseConsMatchingTag(x: PathEx, xs: List[PathX]) = {
-          val (r1: List[BerTLV], r2: List[PathX]) = constructedValue.foldLeft(z0)((p1, p2) => foldFunc(p2, p1))
+          val (r1, r2) = constructedValue.foldLeft[URT](z0)((p1, p2) => foldFunc(p2, p1))
           (BerTLVCons(tag, r1), x :: r2)
         }
 
         override def caseConsMatchingTagLastIndex(x: PathExIndex, xs: List[PathX]) = {
-          val r = constructedValue.foldLeft(z0)((p1, p2) => foldFunc(p2, p1))
-          (BerTLVCons(tag, r._1), PathExIndex(x.tag, x.index - 1) :: r._2)
+          val (r1, r2) = constructedValue.foldLeft[URT](z0)((p1, p2) => foldFunc(p2, p1))
+          (BerTLVCons(tag, r1), PathExIndex(x.tag, x.index - 1) :: r2)
         }
 
         override def caseConsMatchingTagWithIndex(x: PathExIndex, xs: List[PathX]) = {
@@ -444,8 +432,8 @@ object TLV {
         }
 
         override def caseNoMatchingTag(x: PathX, xs: List[PathX]) = {
-          val r = constructedValue.foldLeft(z1)((p1, p2) => foldFunc(p2, p1))
-          (BerTLVCons(tag, r._1), r._2)
+          val (r1, r2) = constructedValue.foldLeft[URT](z1)((p1, p2) => foldFunc(p2, p1))
+          (BerTLVCons(tag, r1), r2)
         }
 
         override def defaultCase() = (self, expression)
@@ -535,26 +523,26 @@ object TLV {
 
       import fastparse.core._
 
-      def parseRec(cfg: ParseCtx[Byte, ByteVector], index0: Int): Mutable[List[BerTLV], Byte, ByteVector] = {
+      type R = Mutable[List[BerTLV], Byte, ByteVector]
+
+      def parseRec(cfg: ParseCtx[Byte, ByteVector], index0: Int): R = {
         val elems = new ListBuffer[BerTLV]
         def continue(cfg: ParseCtx[Byte, ByteVector], index: Int, size: Int) = {
-          @tailrec def applyP(cfg: ParseCtx[Byte, ByteVector], index: Int, size: Int): Mutable[List[BerTLV], Byte, ByteVector] = {
+          @tailrec def applyP(cfg: ParseCtx[Byte, ByteVector], index: Int, size: Int): R = {
             parseTLV.parseRec(cfg, index) match {
-              case Mutable.Success(r, i, t, c) if i - index0 < size => {
-                elems += r;
-                applyP(cfg, i, size)
-              }
-              case Mutable.Success(r, i, t, c) => {
+              case Mutable.Success(r, i, t, c) if i - index0 < size =>
                 elems += r
-                success(cfg.success, elems.toList, i, Set.empty, false)
-              }
+                applyP(cfg, i, size)
+              case Mutable.Success(r, i, t, c) =>
+                elems += r
+                success(cfg.success, elems.toList, i, Set.empty, cut = false)
               case s: Mutable.Failure[Byte, ByteVector] => s
             }
           }
           applyP(cfg, index, size)
         }
         if (totalSize <= 0) {
-          success(cfg.success, elems.toList, index0, Set.empty, false)
+          success(cfg.success, elems.toList, index0, Set.empty, cut = false)
         } else {
           continue(cfg, index0, totalSize)
         }
