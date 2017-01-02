@@ -3,6 +3,7 @@ package org.tlv
 import scodec.bits.ByteVector
 
 import scala.annotation.tailrec
+import scala.collection.immutable.Stream.cons
 import scala.collection.mutable.ListBuffer
 import scala.language.implicitConversions
 
@@ -281,6 +282,7 @@ object TLV {
   }
 
   trait BerTLVConsT extends BerTLV {
+    self =>
     //    require(tag != null, "tag is null")
     //    require(tag.isConstructed, "need a constructed tag")
     //    require(constructedValue != null, "value is null or empty")
@@ -312,75 +314,143 @@ object TLV {
       "\t" * depth + tag.toString() + "\n" + constructedValue.map(_.prettyWithDepth(depth + 1)).mkString
 
     override def selectInternal(expression: List[PathX]): (Option[List[BerTLV]], List[PathX]) = {
-      val foldFunc: (BerTLV, (Option[List[BerTLV]], List[PathX])) => (Option[List[BerTLV]], List[PathX]) = {
-        (tlv, currentResult) => {
-          val (cTLV, _) = currentResult
-          val (nTLV, nEx) = tlv.selectInternal(currentResult._2)
-          val r = (cTLV, nTLV) match {
-            case (Some(v1), Some(v2)) => Some(v1 ++ v2)
-            case (None, Some(v2)) => Some(v2)
-            case (Some(v1), None) => Some(v1)
-            case _ => None
-          }
-          (r, nEx)
-        }
+      //combine the two optional lists
+      def combine(v1: Option[List[BerTLV]], v2: Option[List[BerTLV]]) = (v1, v2) match {
+        case (Some(v1), Some(v2)) => Some(v1 ++ v2)
+        case (None, Some(v2)) => Some(v2)
+        case (Some(v1), None) => Some(v1)
+        case _ => None
       }
-      val cons: Option[List[BerTLV]] => Option[List[BerTLV]] = x1 => x1.map(x => List(this.copyByConstructedValue(x)))
-      val z0: (Option[List[BerTLV]], List[PathX]) = (None, expression.tail)
-      val z1: (Option[List[BerTLV]], List[PathX]) = (None, expression)
-      expression match {
-        case ((x: PathEx) :: Nil) if x.tag == tag =>
-          (Some(List(this)), x :: Nil)
-        case ((x: PathExIndex) :: Nil) if x.index == 0 && x.tag == tag =>
-          (Some(List(this)), List(PathExIndex(x.tag, x.index - 1)))
-        case ((x: PathExIndex) :: Nil) if x.index != 0 && x.tag == tag =>
+
+      def foldFunc(tlv: BerTLV, currentResult: (Option[List[BerTLV]], List[PathX])) = {
+        val (cTLV, _) = currentResult
+        val (nTLV, nEx) = tlv.selectInternal(currentResult._2)
+        (combine(cTLV, nTLV), nEx)
+      }
+      //when match
+      val cons: Option[List[BerTLV]] => Option[List[BerTLV]] =
+        x1 => x1.map(x => List(this.copyByConstructedValue(x)))
+      //base cases when no match
+      matchAllPathCases(new PathHandler[(Option[List[BerTLV]], List[PathX])](expression) {
+
+        val z0: (Option[List[BerTLV]], List[PathX]) = (None, expression.tail)
+
+        val z1: (Option[List[BerTLV]], List[PathX]) = (None, expression)
+
+        override def caseLeafPathNoIndex(x: PathEx) =
+          (Some(List(self)), x :: Nil)
+
+        override def caseLeafPathLastIndex(x: PathExIndex) =
+          (Some(List(self)), List(PathExIndex(x.tag, x.index - 1)))
+
+        override def caseLeafPathWithIndex(x: PathExIndex): (Option[List[BerTLV]], List[PathX]) =
           (None, List(PathExIndex(x.tag, x.index - 1))) //maybe we should continue recursively since it can still occur
-        case ((x: PathEx) :: xs) if x.tag == tag =>
+
+        override def caseConsMatchingTag(x: PathEx, xs: List[PathX]): (Option[List[BerTLV]], List[PathX]) = {
           val r = constructedValue.foldLeft(z0)((p1, p2) => foldFunc(p2, p1))
           (cons(r._1), x :: r._2)
-        case ((x: PathExIndex) :: xs) if x.index == 0 && x.tag == tag =>
+        }
+
+        override def caseConsMatchingTagLastIndex(x: PathExIndex, xs: List[PathX]) = {
           val r = constructedValue.foldLeft(z0)((p1, p2) => foldFunc(p2, p1))
           (cons(r._1), PathExIndex(x.tag, x.index - 1) :: r._2)
-        case ((x: PathExIndex) :: xs) if x.index != 0 && x.tag == tag =>
+        }
+
+        override def caseConsMatchingTagWithIndex(x: PathExIndex, xs: List[PathX]) = {
           (None, PathExIndex(x.tag, x.index - 1) :: xs) //maybe we should continue recursively since it can still occur
-        case ex@(x :: xs) if x.tag != tag =>
+        }
+
+        override def caseNoMatchingTag(x: PathX, xs: List[PathX]) =
           constructedValue.foldLeft(z1)((p1, p2) => foldFunc(p2, p1))
-        case _ =>
-          (None, expression)
-      }
+
+        override def defaultCase(): (Option[List[BerTLV]], List[PathX]) = (None, expression)
+      })
+
+    }
+
+    private abstract class PathHandler[R0](val expression: List[PathX]) {
+
+
+      def caseNoMatchingTag(x: PathX, xs: List[PathX]): R0
+
+      def caseConsMatchingTagWithIndex(x: PathExIndex, xs: List[PathX]): R0
+
+      def caseConsMatchingTagLastIndex(x: PathExIndex, xs: List[PathX]): R0
+
+      def caseConsMatchingTag(x: PathEx, xs: List[PathX]): R0
+
+      def caseLeafPathWithIndex(x: PathExIndex): R0
+
+      def caseLeafPathLastIndex(x: PathExIndex): R0
+
+      def caseLeafPathNoIndex(x: PathEx): R0
+
+      def defaultCase(): R0
+
+    }
+
+    private def matchAllPathCases[R](handler: PathHandler[R]): R = handler.expression match {
+      case ((x: PathEx) :: Nil) if x.tag == tag =>
+        handler.caseLeafPathNoIndex(x)
+      case ((x: PathExIndex) :: Nil) if x.index == 0 && x.tag == tag =>
+        handler.caseLeafPathLastIndex(x)
+      case ((x: PathExIndex) :: Nil) if x.index != 0 && x.tag == tag =>
+        handler.caseLeafPathWithIndex(x)
+      case ((x: PathEx) :: xs) if x.tag == tag =>
+        handler.caseConsMatchingTag(x, xs)
+      case ((x: PathExIndex) :: xs) if x.index == 0 && x.tag == tag =>
+        handler.caseConsMatchingTagLastIndex(x, xs)
+      case ((x: PathExIndex) :: xs) if x.index != 0 && x.tag == tag =>
+        handler.caseConsMatchingTagWithIndex(x, xs)
+      case ex@(x :: xs) if x.tag != tag =>
+        handler.caseNoMatchingTag(x, xs)
+      case _ =>
+        handler.defaultCase()
     }
 
     override def updatedInternal(expression: List[PathX], tlv: BerTLV): (BerTLV, List[PathX]) = {
-      val foldFunc: (BerTLV, (List[BerTLV], List[PathX])) => (List[BerTLV], List[PathX]) = {
-        (tlv, currentResult) => {
-          val (cTLV, _) = currentResult
-          val (nTLV, nEx) = tlv.updatedInternal(currentResult._2, tlv)
-          (cTLV ++ nTLV, nEx)
-        }
+      def foldFunc(tlv: BerTLV, currentResult: (List[BerTLV], List[PathX])): (List[BerTLV], List[PathX]) = {
+        val (cTLV, _) = currentResult
+        val (nTLV, nEx) = tlv.updatedInternal(currentResult._2, tlv)
+        (cTLV ++ nTLV, nEx)
       }
-      val z0: (List[BerTLV], List[PathX]) = (Nil, expression.tail)
-      val z1: (List[BerTLV], List[PathX]) = (Nil, expression)
-      expression match {
-        case ((x: PathEx) :: Nil) if x.tag == tag =>
+
+      matchAllPathCases(new PathHandler[(BerTLV, List[PathX])](expression) {
+
+        val z0: (List[BerTLV], List[PathX]) = (Nil, expression.tail)
+        val z1: (List[BerTLV], List[PathX]) = (Nil, expression)
+
+        override def caseLeafPathNoIndex(x: PathEx) =
           (tlv, x :: Nil)
-        case ((x: PathExIndex) :: Nil) if x.index == 0 && x.tag == tag =>
+
+        override def caseLeafPathLastIndex(x: PathExIndex) =
           (tlv, List(PathExIndex(x.tag, x.index - 1)))
-        case ((x: PathExIndex) :: Nil) if x.index != 0 && x.tag == tag =>
-          (this, List(PathExIndex(x.tag, x.index - 1))) //maybe we should continue recursively since it can still occur
-        case ((x: PathEx) :: xs) if x.tag == tag =>
-          val r = constructedValue.foldLeft(z0)((p1, p2) => foldFunc(p2, p1))
-          (BerTLVCons(tag, r._1), x :: r._2)
-        case ((x: PathExIndex) :: xs) if x.index == 0 && x.tag == tag =>
+
+        override def caseLeafPathWithIndex(x: PathExIndex) =
+          (self, List(PathExIndex(x.tag, x.index - 1))) //maybe we should continue recursively since it can still occur
+
+        override def caseConsMatchingTag(x: PathEx, xs: List[PathX]) = {
+          val (r1: List[BerTLV], r2: List[PathX]) = constructedValue.foldLeft(z0)((p1, p2) => foldFunc(p2, p1))
+          (BerTLVCons(tag, r1), x :: r2)
+        }
+
+        override def caseConsMatchingTagLastIndex(x: PathExIndex, xs: List[PathX]) = {
           val r = constructedValue.foldLeft(z0)((p1, p2) => foldFunc(p2, p1))
           (BerTLVCons(tag, r._1), PathExIndex(x.tag, x.index - 1) :: r._2)
-        case ((x: PathExIndex) :: xs) if x.index != 0 && x.tag == tag =>
-          (this, PathExIndex(x.tag, x.index - 1) :: xs) //maybe we should continue recursively since it can still occur
-        case ex@(x :: xs) if x.tag != tag =>
+        }
+
+        override def caseConsMatchingTagWithIndex(x: PathExIndex, xs: List[PathX]) = {
+          (self, PathExIndex(x.tag, x.index - 1) :: xs) //maybe we should continue recursively since it can still occur
+        }
+
+        override def caseNoMatchingTag(x: PathX, xs: List[PathX]) = {
           val r = constructedValue.foldLeft(z1)((p1, p2) => foldFunc(p2, p1))
           (BerTLVCons(tag, r._1), r._2)
-        case _ =>
-          (this, expression)
-      }
+        }
+
+        override def defaultCase() = (self, expression)
+
+      })
     }
 
   }
@@ -493,5 +563,6 @@ object TLV {
     }
 
   }
+
 
 }
