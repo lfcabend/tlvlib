@@ -6,7 +6,7 @@ package org.tlv
 
 import org.scalatest._
 import org.tlv.TLV._
-import org.tlv.TLV.Parser._
+import org.tlv.TLV.BerTLVParser._
 import fastparse.byte.all._
 import scodec.bits.ByteVector._
 import scodec.bits._
