@@ -662,6 +662,14 @@ class TestTLV extends FlatSpec with Matchers {
     }
   }
 
+
+  it should "fail to parse on invalid tag1" in {
+    parseTag.parse(hex"FF") match {
+      case a@Parsed.Failure(l, i, e) => println(a)
+      case _ => fail("It should fail to parse an invalid tag")
+    }
+  }
+
   it should "fail to parse on invalid tag" in {
     parseMoreByteTag.parse(hex"80") match {
       case a@Parsed.Failure(l, i, e) => println(a)

@@ -5,6 +5,7 @@ import scodec.bits.ByteVector
 import scala.annotation.tailrec
 import scala.collection.mutable.ListBuffer
 import scala.language.implicitConversions
+import scala.language.experimental.macros
 
 /**
   * Created by lau on 1-7-15.
@@ -444,13 +445,153 @@ object TLV {
 
   }
 
+
+  @deprecated("Provides compile time compatibility between 2.10 and 2.11", "1.0.6")
+  object blackbox {
+    type Context = scala.reflect.macros.Context
+  }
+
+  def berTagImpl(c: blackbox.Context)(args: c.Expr[ByteVector]*): c.Expr[BerTag] = {
+
+    import c.{universe => u}
+    import u._
+
+    val Apply(_, List(Apply(_, parts))) = c.prefix.tree
+    val partLiterals: List[String] = parts map {
+      case Literal(Constant(part: String)) =>
+        val hex = ByteVector.fromHex(part)
+        if (hex.isEmpty)
+          c.error(c.enclosingPosition, "hexadecimal string literal may only contain characters [0-9a-fA-f]")
+        else {
+          BerTLVParser.parseTag.parse(hex.get) match {
+            case fastparse.core.Parsed.Success(x, _) =>
+            case f@_ =>
+              c.error(c.enclosingPosition, s"Is not a valid tag: ${f}")
+          }
+        }
+        part
+    }
+
+    val headPart = c.Expr[String](Literal(Constant(partLiterals.head)))
+    val initialStringBuilder = reify {
+      new StringBuilder().append(headPart.splice)
+    }
+    val stringBuilder = (args zip partLiterals.tail).foldLeft(initialStringBuilder) {
+      case (sb, (arg, part)) =>
+        val partExpr = c.Expr[String](Literal(Constant(part)))
+        reify {
+          sb.splice.append(arg.splice.toHex).append(partExpr.splice)
+        }
+    }
+
+    reify {
+      BerTLVParser.parseTag.parse(ByteVector.fromValidHex(stringBuilder.splice.toString)).get.value
+    }
+  }
+
+  implicit class BerTagContext(val sc: StringContext) {
+
+    def berTag(args: ByteVector*): BerTag = macro berTagImpl
+
+  }
+
+  def berTLVImpl(c: blackbox.Context)(args: c.Expr[ByteVector]*): c.Expr[BerTLV] = {
+
+    import c.{universe => u}
+    import u._
+
+    val Apply(_, List(Apply(_, parts))) = c.prefix.tree
+    val partLiterals: List[String] = parts map {
+      case Literal(Constant(part: String)) =>
+        val hex = ByteVector.fromHex(part)
+        if (hex.isEmpty)
+          c.error(c.enclosingPosition, "hexadecimal string literal may only contain characters [0-9a-fA-f]")
+        else {
+          BerTLVParser.parseTLV.parse(hex.get) match {
+            case fastparse.core.Parsed.Success(x, _) =>
+            case f@_ =>
+              c.error(c.enclosingPosition, s"Is not a valid ber tlv: ${f}")
+          }
+        }
+        part
+    }
+
+    val headPart = c.Expr[String](Literal(Constant(partLiterals.head)))
+    val initialStringBuilder = reify {
+      new StringBuilder().append(headPart.splice)
+    }
+    val stringBuilder = (args zip partLiterals.tail).foldLeft(initialStringBuilder) {
+      case (sb, (arg, part)) =>
+        val partExpr = c.Expr[String](Literal(Constant(part)))
+        reify {
+          sb.splice.append(arg.splice.toHex).append(partExpr.splice)
+        }
+    }
+
+    reify {
+      BerTLVParser.parseTLV.parse(ByteVector.fromValidHex(stringBuilder.splice.toString)).get.value
+    }
+  }
+
+  implicit class BerTLVContext(val sc: StringContext) {
+
+    def berTLV(args: ByteVector*): BerTLV = macro berTLVImpl
+
+  }
+
+
+  def berTLVListImpl(c: blackbox.Context)(args: c.Expr[ByteVector]*): c.Expr[List[BerTLV]] = {
+
+    import c.{universe => u}
+    import u._
+
+    val Apply(_, List(Apply(_, parts))) = c.prefix.tree
+    val partLiterals: List[String] = parts map {
+      case Literal(Constant(part: String)) =>
+        val hex = ByteVector.fromHex(part)
+        if (hex.isEmpty)
+          c.error(c.enclosingPosition, "hexadecimal string literal may only contain characters [0-9a-fA-f]")
+        else {
+          BerTLVParser.parseTLVList.parse(hex.get) match {
+            case fastparse.core.Parsed.Success(x, _) =>
+            case f@_ =>
+              c.error(c.enclosingPosition, s"Is not a valid tlv list: ${f}")
+          }
+        }
+        part
+    }
+
+    val headPart = c.Expr[String](Literal(Constant(partLiterals.head)))
+    val initialStringBuilder = reify {
+      new StringBuilder().append(headPart.splice)
+    }
+    val stringBuilder = (args zip partLiterals.tail).foldLeft(initialStringBuilder) {
+      case (sb, (arg, part)) =>
+        val partExpr = c.Expr[String](Literal(Constant(part)))
+        reify {
+          sb.splice.append(arg.splice.toHex).append(partExpr.splice)
+        }
+    }
+
+    reify {
+      BerTLVParser.parseTLVList.parse(ByteVector.fromValidHex(stringBuilder.splice.toString)).get.value.toList
+    }
+  }
+
+
+  implicit class BerTLVListContext(val sc: StringContext) {
+
+    def berTLVList(args: ByteVector*): List[BerTLV] = macro berTLVListImpl
+
+  }
+
   object BerTLVParser {
 
     import fastparse.byte.all._
 
     import fastparse.byte.all.Parser
 
-    def parseSingleByteTag = P(AnyByte.!.map((x: Bytes) => BerTag(x)))
+    def parseSingleByteTag = P(AnyByte.!.filter(x => !BerTag.hasNextByte(x.toByte(), 0)).map((x: Bytes) => BerTag(x)))
 
     def parseFirstByteOfTagWithMore = P(AnyByte.!.filter(x => BerTag.hasNextByte(x.toByte(), 0))).
       opaque("Byte did not indicate more bytes")
@@ -614,14 +755,14 @@ object TLV {
       AnyByte.!.filter(x => x.toByte() >= 0x01.toByte && x.toByte() <= 0xFE).map(_.toInt())
     )
 
-    def parseThreeByteLength = P( for (
+    def parseThreeByteLength = P(for (
       p1 <- AnyByte.!.filter(x => x.toByte() == 0xFF.toByte);
       p2 <- AnyByte.!;
       p3 <- AnyByte.!
     ) yield (p2 ++ p3).toInt(signed = false))
 
 
-    def parseDGI = P( for (
+    def parseDGI = P(for (
       tag <- parseDGITag;
       l <- parseDGILength;
       v <- AnyByte.!.rep(exactly = l).!
