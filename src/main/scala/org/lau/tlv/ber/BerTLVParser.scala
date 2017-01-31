@@ -18,15 +18,17 @@ object BerTLVParser {
 
   def parseTwoByteTag = P(
     for (
-      x1 <- parseFirstByteOfTagWithMore;
+      x1 <- parseFirstByteOfTagWithMore.~/;
       x2 <- AnyByte.!
     ) yield BerTag(x1 ++ x2))
 
   def parseTag: Parser[BerTag] = P(parseMoreByteTag | parseTwoByteTag | parseSingleByteTag)
 
+  def parseTag2End: Parser[BerTag] = P(parseTag ~ End)
+
   def parseMoreByteTag = P(for (
-    x1 <- parseFirstByteOfTagWithMore;
-    x2 <- parseSubsequentByteOfTagWithMore.rep.!;
+    x1 <- parseFirstByteOfTagWithMore.~/;
+    x2 <- parseSubsequentByteOfTagWithMore.rep.!.~/;
     x3 <- AnyByte.!
   ) yield BerTag(x1 ++ x2 ++ x3))
 
@@ -35,7 +37,7 @@ object BerTLVParser {
   def parseSingleLength = P(AnyByte.!.filter(x => (x.toByte() & 0xFF) <= 0x7F).map(_.toInt()))
 
   def parseMultipleLength = P(for (
-    x <- firstByteOfMultipleLength;
+    x <- firstByteOfMultipleLength.~/;
     y <- parserNBytesOfLength(x)
   ) yield BigInt(1, y.toArray).intValue())
 
@@ -47,27 +49,31 @@ object BerTLVParser {
     (x.toByte() & 0xFF) & 0x7F
   }))
 
-  def parseLength = P(parseSingleLength | parseMultipleLength)
+  def parseLength = P(parseSingleLength.~/ | parseMultipleLength.~/).~/
 
   def parseNonConstructedATag: Parser[BerTag] = P(parseTag.filter(!_.isConstructed)).opaque("is not a non constructed tag")
 
   def parseAConstructedTag: Parser[BerTag] = P(parseTag.filter(_.isConstructed)).opaque("Is not a constructed tag")
 
-  def parseTLV: Parser[BerTLV] = P(parseTLVCons | parseTLVLeaf)
+  def parseTLV: Parser[BerTLV] = P(parseTLVCons.~/ | parseTLVLeaf.~/)
+
+  def parseTLV2End: Parser[BerTLV] = P(parseTLV ~ End)
 
   def parseTLVList = P(parseTLV.rep)
 
+  def parseTLVList2End = P(parseTLV.rep ~ End)
+
   def parseTLVLeaf = P(for (
-    x1 <- parseNonConstructedATag;
-    x2 <- parseLength;
+    x1 <- parseNonConstructedATag.~/;
+    x2 <- parseLength.~/;
     x3 <- AnyByte.!.rep(exactly = x2).!
   ) yield {
     BerTLVLeaf(x1, x3)
   })
 
   def parseTLVCons = P(for (
-    x1 <- parseAConstructedTag;
-    x2 <- parseLength;
+    x1 <- parseAConstructedTag.~/;
+    x2 <- parseLength.~/;
     x3 <- repParsingForXByte(x2)
   ) yield BerTLVCons(x1, x3))
 

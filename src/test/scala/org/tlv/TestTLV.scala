@@ -60,6 +60,17 @@ class TestTLV extends FlatSpec with Matchers {
     }
   }
 
+  it should "be possible to create a bertag by macro" in {
+    val t = berTag"80"
+    t should be(BerTag(hex"80"))
+  }
+
+  //  it should "be possible to create a bertag by macro using interpolation" in {
+  //    val tv = hex"20"
+  //    val t = berTag"DF${tv}"
+  //    t should be(BerTag(hex"DF20"))
+  //  }
+
   "A BerTLVLeaf" should "be able to be constructed" in {
     val v = BerTLVLeaf(BerTag(hex"80"), hex"0000")
     v.tag should be(BerTag(hex"80"))
@@ -68,12 +79,25 @@ class TestTLV extends FlatSpec with Matchers {
     v.value should be(hex"0000")
   }
 
-//  it should "also be able to construct using the operator" in {
-//    val v = hex"80" >>: hex"0000"
-//    v.tag should be(BerTag(hex"80"))
-//    v.tag.value should be(hex"80")
-//    v.length should be(2)
-//    v.value should be(hex"0000")
+  it should "be possible to use a macro to create a ber tlv leaf" in {
+    val v = berTLV"80020000"
+    val v2 = BerTLVLeaf(BerTag(hex"80"), hex"0000")
+    v should be(v2)
+  }
+
+//  todo: maybe we can implement this, but now I am getting no proxy for val error
+//  it should "be possible to use macros and string interpolation with values" in {
+//    val t = "80"
+//    val l = "02"
+//    val v = berTLV"${t}${l}0000"
+//    val v2 = BerTLVLeaf(BerTag(hex"80"), hex"0000")
+//    v should be(v2)
+//  }
+//
+//  it should "be possible to use macros and string interpolation" in {
+//    val v = berTLV"${"80"}${"02"}0000"
+//    val v2 = BerTLVLeaf(BerTag(hex"80"), hex"0000")
+//    v should be(v2)
 //  }
 
   it should "be able to have no value" in {
@@ -406,7 +430,7 @@ class TestTLV extends FlatSpec with Matchers {
 
     val v2 = BerTLVCons(BerTag(hex"70"), List(v11, v12))
 
-    val selected = v2 -> (berTag"70", (berTag"A5", 1), berTag"81")
+    val selected = v2 ->(berTag"70", (berTag"A5", 1), berTag"81")
     selected should be(Some(List(BerTLVCons(berTag"70", List(BerTLVCons(berTag"A5", List(v01)))))))
   }
 
@@ -654,6 +678,13 @@ class TestTLV extends FlatSpec with Matchers {
     //      println(sss)
     print(r.map(_.pretty))
     //    sss should be("70A5800000800000A5800000800000A580000080000080000070A5800000800000A5800000800000A5800000800000800000")
+  }
+
+  it should "not parse an invalid TLV leaf" in {
+    parseTLV2End.parse(hex"8002000000") match {
+      case a@Parsed.Failure(l, i, e) => println(a)
+      case _ => fail("It should fail to parse a tlv with data beyond the end")
+    }
   }
 
 

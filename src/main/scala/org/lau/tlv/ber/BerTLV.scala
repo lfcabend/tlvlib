@@ -59,13 +59,13 @@ trait BerTLV extends TLV[BerTag, BerTLV] {
 
   def select(expression: List[PathX]): Option[List[BerTLV]] = selectInternal(expression)._1
 
-  def selectLast(expression: List[PathX]): Option[List[BerTLV]] = selectLastInternal(expression, select(expression))
+  def selectLeaves(expression: List[PathX]): Option[List[BerTLV]] = selectLeavesInternal(expression, select(expression))
 
-  def selectLastInternal(expression: List[PathX], r: Option[List[BerTLV]]): Option[List[BerTLV]] =
+  def selectLeavesInternal(expression: List[PathX], r: Option[List[BerTLV]]): Option[List[BerTLV]] =
     r.map(_.flatMap(l => {
       (l, expression) match {
         case (v, (x :: Nil)) if v.tag == x.tag => List(v)
-        case (v: BerTLVConsT, (x :: xs)) => v.constructedValue.flatMap(l => l.selectLastInternal(xs, Some(List(l))).getOrElse(Nil))
+        case (v: BerTLVConsT, (x :: xs)) => v.constructedValue.flatMap(l => l.selectLeavesInternal(xs, Some(List(l))).getOrElse(Nil))
         case _ => Nil
       }
     }))
@@ -138,7 +138,7 @@ trait BerTLVLeafT extends BerTLV {
     if (tlv.tag == tag) tlv
     else this
 
-  override def toString() = s"BerTLVLeaf($tag, $value)"
+  override def toString() = s"BerTLVLeaf($tag, ${value.toHex})"
 
   override def foreach[U](f: BerTLV => U): Unit = f(this)
 
