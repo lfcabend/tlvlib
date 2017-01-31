@@ -61,7 +61,7 @@ trait BerTLV extends TLV[BerTag, BerTLV] {
 
   def selectLeaves(expression: List[PathX]): Option[List[BerTLV]] = selectLeavesInternal(expression, select(expression))
 
-  def selectLeavesInternal(expression: List[PathX], r: Option[List[BerTLV]]): Option[List[BerTLV]] =
+  private[ber] def selectLeavesInternal(expression: List[PathX], r: Option[List[BerTLV]]): Option[List[BerTLV]] =
     r.map(_.flatMap(l => {
       (l, expression) match {
         case (v, (x :: Nil)) if v.tag == x.tag => List(v)
@@ -72,7 +72,7 @@ trait BerTLV extends TLV[BerTag, BerTLV] {
 
   def ->(expression: PathX*) = select(expression.toList)
 
-  def selectInternal(expression: List[PathX]): (Option[List[BerTLV]], List[PathX])
+  private[ber] def selectInternal(expression: List[PathX]): (Option[List[BerTLV]], List[PathX])
 
   def prettyWithDepth(depth: Int): String
 
@@ -80,7 +80,7 @@ trait BerTLV extends TLV[BerTag, BerTLV] {
 
   def updated(expression: List[PathX], tlv: BerTLV): BerTLV = updatedInternal(expression, tlv)._1
 
-  def updatedInternal(expression: List[PathX], tlv: BerTLV): (BerTLV, List[PathX])
+  private[ber] def updatedInternal(expression: List[PathX], tlv: BerTLV): (BerTLV, List[PathX])
 
   def foldTLV[B](f: (BerTag, ByteVector) => B, g: (BerTag, Seq[B]) => B): B
 
@@ -151,7 +151,7 @@ trait BerTLVLeafT extends BerTLV {
   def prettyWithDepth(depth: Int): String =
     "\t" * depth + pretty
 
-  override def selectInternal(expression: List[PathX]): (Option[List[BerTLV]], List[PathX]) = expression match {
+  override private[ber] def selectInternal(expression: List[PathX]): (Option[List[BerTLV]], List[PathX]) = expression match {
     case ((x: PathEx) :: Nil) if x.tag == tag =>
       (Some(List(this)), expression)
     case ((x: PathExIndex) :: Nil) if x.index == 0 && x.tag == tag =>
@@ -162,7 +162,7 @@ trait BerTLVLeafT extends BerTLV {
       (None, expression)
   }
 
-  override def updatedInternal(expression: List[PathX], tlv: BerTLV): (BerTLV, List[PathX]) = expression match {
+  override private[ber] def updatedInternal(expression: List[PathX], tlv: BerTLV): (BerTLV, List[PathX]) = expression match {
     case ((x: PathEx) :: Nil) if x.tag == tag =>
       (tlv, expression)
     case ((x: PathExIndex) :: Nil) if x.index == 0 && x.tag == tag =>
@@ -214,7 +214,7 @@ trait BerTLVConsT extends BerTLV {
   override def prettyWithDepth(depth: Int): String =
     "\t" * depth + tag.toString() + "\n" + constructedValue.map(_.prettyWithDepth(depth + 1)).mkString
 
-  override def selectInternal(expression: List[PathX]): (Option[List[BerTLV]], List[PathX]) = {
+  override private[ber] def selectInternal(expression: List[PathX]): (Option[List[BerTLV]], List[PathX]) = {
     //combine the two optional lists
     def combine(param1: Option[List[BerTLV]], param2: Option[List[BerTLV]]) = (param1, param2) match {
       case (Some(v1), Some(v2)) => Some(v1 ++ v2)
@@ -310,7 +310,7 @@ trait BerTLVConsT extends BerTLV {
       handler.defaultCase()
   }
 
-  override def updatedInternal(expression: List[PathX], tlv: BerTLV): (BerTLV, List[PathX]) = {
+  override private[ber] def updatedInternal(expression: List[PathX], tlv: BerTLV): (BerTLV, List[PathX]) = {
     def foldFunc(tlv: BerTLV, currentResult: (List[BerTLV], List[PathX])) = {
       val (cTLV, _) = currentResult
       val (nTLV, nEx) = tlv.updatedInternal(currentResult._2, tlv)
