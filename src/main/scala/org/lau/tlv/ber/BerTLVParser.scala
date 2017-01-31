@@ -49,13 +49,13 @@ object BerTLVParser {
     (x.toByte() & 0xFF) & 0x7F
   }))
 
-  def parseLength = P(parseSingleLength.~/ | parseMultipleLength.~/).~/
+  def parseLength = P(parseSingleLength | parseMultipleLength)
 
   def parseNonConstructedATag: Parser[BerTag] = P(parseTag.filter(!_.isConstructed)).opaque("is not a non constructed tag")
 
   def parseAConstructedTag: Parser[BerTag] = P(parseTag.filter(_.isConstructed)).opaque("Is not a constructed tag")
 
-  def parseTLV: Parser[BerTLV] = P(parseTLVCons.~/ | parseTLVLeaf.~/)
+  def parseTLV: Parser[BerTLV] = P(parseTLVCons | parseTLVLeaf)
 
   def parseTLV2End: Parser[BerTLV] = P(parseTLV ~ End)
 
