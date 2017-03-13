@@ -48,7 +48,7 @@ package object ber {
 
     def berTLV(): BerTLV = macro Impl.berTLVImpl
 
-  }
+  }`
 
   implicit class BerTLVListContext(val sc: StringContext) {
 
