@@ -5,8 +5,10 @@ package org.tlv
   */
 
 import org.scalatest._
-import org.tlv.TLV._
-import org.tlv.TLV.BerTLVParser._
+import org.lau.tlv._
+import org.lau.tlv.ber._
+import org.lau.tlv.ber.BerTLV._
+import org.lau.tlv.ber.BerTLVParser._
 import fastparse.byte.all._
 import scodec.bits.ByteVector._
 import scodec.bits._
@@ -58,6 +60,17 @@ class TestTLV extends FlatSpec with Matchers {
     }
   }
 
+  it should "be possible to create a bertag by macro" in {
+    val t = berTag"80"
+    t should be(BerTag(hex"80"))
+  }
+
+  //  it should "be possible to create a bertag by macro using interpolation" in {
+  //    val tv = hex"20"
+  //    val t = berTag"DF${tv}"
+  //    t should be(BerTag(hex"DF20"))
+  //  }
+
   "A BerTLVLeaf" should "be able to be constructed" in {
     val v = BerTLVLeaf(BerTag(hex"80"), hex"0000")
     v.tag should be(BerTag(hex"80"))
@@ -66,13 +79,26 @@ class TestTLV extends FlatSpec with Matchers {
     v.value should be(hex"0000")
   }
 
-  it should "also be able to construct using the operator" in {
-    val v = hex"80" >>: hex"0000"
-    v.tag should be(BerTag(hex"80"))
-    v.tag.value should be(hex"80")
-    v.length should be(2)
-    v.value should be(hex"0000")
+  it should "be possible to use a macro to create a ber tlv leaf" in {
+    val v = berTLV"80020000"
+    val v2 = BerTLVLeaf(BerTag(hex"80"), hex"0000")
+    v should be(v2)
   }
+
+//  todo: maybe we can implement this, but now I am getting no proxy for val error
+//  it should "be possible to use macros and string interpolation with values" in {
+//    val t = "80"
+//    val l = "02"
+//    val v = berTLV"${t}${l}0000"
+//    val v2 = BerTLVLeaf(BerTag(hex"80"), hex"0000")
+//    v should be(v2)
+//  }
+//
+//  it should "be possible to use macros and string interpolation" in {
+//    val v = berTLV"${"80"}${"02"}0000"
+//    val v2 = BerTLVLeaf(BerTag(hex"80"), hex"0000")
+//    v should be(v2)
+//  }
 
   it should "be able to have no value" in {
     val v = BerTLVLeaf(BerTag(hex"80"), ByteVector.empty)
@@ -123,7 +149,7 @@ class TestTLV extends FlatSpec with Matchers {
 
   it should "be possible to select the tag from a leaf with no index" in {
     val v = BerTLVLeaf(BerTag(hex"80"), hex"0000")
-    val selected = v.select(List(PathEx(hex"80")))
+    val selected = v.select(List(PathEx(berTag"80")))
     selected should be(Some(List(v)))
   }
 
@@ -144,27 +170,27 @@ class TestTLV extends FlatSpec with Matchers {
 
   it should "be possible to select the tag from a leaf with index" in {
     val v = BerTLVLeaf(BerTag(hex"80"), hex"0000")
-    val selected = v.select(List(PathExIndex(hex"80", 0)))
+    val selected = v.select(List(PathExIndex(berTag"80", 0)))
     selected should be(Some(List(v)))
   }
 
   it should "be possible to update the tag from a leaf with index" in {
     val v = BerTLVLeaf(BerTag(hex"80"), hex"0000")
     val n = BerTLVLeaf(BerTag(hex"81"), hex"0001")
-    val updated = v.updated(List(PathExIndex(hex"80", 0)), n)
+    val updated = v.updated(List(PathExIndex(berTag"80", 0)), n)
     updated should be(n)
   }
 
 
   it should "be possible not to select the tag from a leaf with no index" in {
     val v = BerTLVLeaf(BerTag(hex"80"), hex"0000")
-    val selected = v.select(List(PathEx(hex"81")))
+    val selected = v.select(List(PathEx(berTag"81")))
     selected should be(None)
   }
 
   it should "be possible not to select the tag from a leaf with index" in {
     val v = BerTLVLeaf(BerTag(hex"80"), hex"0000")
-    val selected = v.select(List(PathExIndex(hex"80", 10)))
+    val selected = v.select(List(PathExIndex(berTag"80", 10)))
     selected should be(None)
   }
 
@@ -297,7 +323,7 @@ class TestTLV extends FlatSpec with Matchers {
     val v1 = BerTLVCons(BerTag(hex"A5"), List(v0, v00))
     val v2 = BerTLVCons(BerTag(hex"70"), List(v1))
 
-    val selected = v2.select(List(PathEx(hex"80")))
+    val selected = v2.select(List(PathEx(berTag"80")))
     selected should be(Some(List(v0)))
   }
 
@@ -320,7 +346,7 @@ class TestTLV extends FlatSpec with Matchers {
     val v1 = BerTLVCons(BerTag(hex"A5"), List(v0, v00))
     val v2 = BerTLVCons(BerTag(hex"70"), List(v1, v1, v1))
 
-    val selected = v2.select(List(PathEx(hex"80")))
+    val selected = v2.select(List(PathEx(berTag"80")))
     selected should be(Some(List(v0, v0, v0)))
   }
 
@@ -346,8 +372,8 @@ class TestTLV extends FlatSpec with Matchers {
 
     val v2 = BerTLVCons(BerTag(hex"70"), List(v1))
 
-    val selected = v2.select(List(PathEx(hex"A5"), PathEx(hex"80")))
-    selected should be(Some(List(BerTLVCons(hex"A5", List(v0)))))
+    val selected = v2.select(List(PathEx(berTag"A5"), PathEx(berTag"80")))
+    selected should be(Some(List(BerTLVCons(berTag"A5", List(v0)))))
   }
 
   it should "be able to update constructed TLV" in {
@@ -374,8 +400,8 @@ class TestTLV extends FlatSpec with Matchers {
 
     val v2 = BerTLVCons(BerTag(hex"70"), List(v1))
 
-    val selected = v2.select(List(PathEx(hex"70"), PathEx(hex"A5"), PathEx(hex"80")))
-    selected should be(Some(List(BerTLVCons(hex"70", List(BerTLVCons(hex"A5", List(v0)))))))
+    val selected = v2.select(List(PathEx(berTag"70"), PathEx(berTag"A5"), PathEx(berTag"80")))
+    selected should be(Some(List(BerTLVCons(berTag"70", List(BerTLVCons(berTag"A5", List(v0)))))))
   }
 
   it should "be able to select constructed TLV 3 levels deep with index" in {
@@ -389,8 +415,8 @@ class TestTLV extends FlatSpec with Matchers {
 
     val v2 = BerTLVCons(BerTag(hex"70"), List(v11, v12))
 
-    val selected = v2.select(List(PathEx(hex"70"), PathExIndex(hex"A5", 1), PathEx(hex"81")))
-    selected should be(Some(List(BerTLVCons(hex"70", List(BerTLVCons(hex"A5", List(v01)))))))
+    val selected = v2.select(List(PathEx(berTag"70"), PathExIndex(berTag"A5", 1), PathEx(berTag"81")))
+    selected should be(Some(List(BerTLVCons(berTag"70", List(BerTLVCons(berTag"A5", List(v01)))))))
   }
 
   it should "be able to select constructed TLV 3 levels deep with index with the arrow op" in {
@@ -404,8 +430,8 @@ class TestTLV extends FlatSpec with Matchers {
 
     val v2 = BerTLVCons(BerTag(hex"70"), List(v11, v12))
 
-    val selected = v2 -> (hex"70", (hex"A5", 1), hex"81")
-    selected should be(Some(List(BerTLVCons(hex"70", List(BerTLVCons(hex"A5", List(v01)))))))
+    val selected = v2 ->(berTag"70", (berTag"A5", 1), berTag"81")
+    selected should be(Some(List(BerTLVCons(berTag"70", List(BerTLVCons(berTag"A5", List(v01)))))))
   }
 
   it should "be able to select constructed TLV with merged result" in {
@@ -419,8 +445,8 @@ class TestTLV extends FlatSpec with Matchers {
 
     val v2 = BerTLVCons(BerTag(hex"70"), List(v11, v12))
 
-    val selected = v2.select(List(PathEx(hex"70"), PathExIndex(hex"A5", 1), PathEx(hex"81")))
-    selected should be(Some(List(BerTLVCons(hex"70", List(BerTLVCons(hex"A5", List(v01)))))))
+    val selected = v2.select(List(PathEx(berTag"70"), PathExIndex(berTag"A5", 1), PathEx(berTag"81")))
+    selected should be(Some(List(BerTLVCons(berTag"70", List(BerTLVCons(berTag"A5", List(v01)))))))
   }
 
   //  "A fast parser " should "be able fail with custome message using the result" in {
@@ -654,11 +680,26 @@ class TestTLV extends FlatSpec with Matchers {
     //    sss should be("70A5800000800000A5800000800000A580000080000080000070A5800000800000A5800000800000A5800000800000800000")
   }
 
+  it should "not parse an invalid TLV leaf" in {
+    parseTLV2End.parse(hex"8002000000") match {
+      case a@Parsed.Failure(l, i, e) => println(a)
+      case _ => fail("It should fail to parse a tlv with data beyond the end")
+    }
+  }
+
 
   it should "fail to parse on invalid constructed tag" in {
     parseAConstructedTag.parse(hex"80") match {
       case a@Parsed.Failure(l, i, e) => println(a)
       case _ => fail("It should fail to parse a constructed tag")
+    }
+  }
+
+
+  it should "fail to parse on invalid tag1" in {
+    parseTag.parse(hex"FF") match {
+      case a@Parsed.Failure(l, i, e) => println(a)
+      case _ => fail("It should fail to parse an invalid tag")
     }
   }
 
